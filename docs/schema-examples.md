@@ -118,7 +118,6 @@ spec:
   description: Acceptance/production cluster enforcers
   type: agent
   enforceMode: true
-  gateways: ["gw-01"]
   tokenSecretRef:                     # where the token goes. NEVER into Git.
     name: aqua-enforcer-token
     namespace: aqua
@@ -126,6 +125,9 @@ spec:
   enforcement: Reconcile
   deletionPolicy: Orphan
 ```
+
+Gateways are deliberately not part of the schema: Aqua assigns them by
+default, so the tool leaves them to Aqua rather than owning a field nobody sets.
 
 The token comes back from Aqua on create and is written only to the destination
 named in `tokenSecretRef` — a Kubernetes Secret in-cluster, or a file path when
