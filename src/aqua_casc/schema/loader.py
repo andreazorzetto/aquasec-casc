@@ -55,6 +55,20 @@ def _nested_model(info: Any) -> Type[BaseModel] | None:
     return None
 
 
+def _field_description(model: Type[BaseModel], loc: tuple[Any, ...]) -> str:
+    """The schema description of the field at ``loc``, or "" if there is none."""
+    current: Type[BaseModel] | None = model
+    info = None
+    for part in loc:
+        if current is None or not isinstance(part, str):
+            return ""
+        info = current.model_fields.get(part)
+        if info is None:
+            return ""
+        current = _nested_model(info)
+    return (info.description or "") if info is not None else ""
+
+
 def _dotted(loc: tuple[Any, ...]) -> str:
     return ".".join(str(p) for p in loc if p != "__root__")
 
@@ -86,6 +100,11 @@ def _split_problems(
                 )
             )
             unknown.append(SchemaProblem(path=path, message="unknown field", hint=hint))
+        elif err["type"] == "missing":
+            hard.append(SchemaProblem(
+                path=path, message="required",
+                hint=_field_description(model, tuple(err["loc"])),
+            ))
         else:
             hard.append(SchemaProblem(path=path, message=err["msg"]))
 

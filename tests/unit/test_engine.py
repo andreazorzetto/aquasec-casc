@@ -268,6 +268,7 @@ RENAMED_AUDIT = """
     metadata:
       name: devtest-baseline
     spec:
+      applicationScopes: ["DevTest"]
       aquaName: devtest-baseline-v2
       enforce: false
       controls:

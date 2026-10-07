@@ -66,6 +66,7 @@ def test_owned_paths_contain_only_what_the_user_wrote():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           enforce: false
           controls:
             blockNonCompliantImages: false
@@ -96,6 +97,7 @@ def test_unset_fields_with_defaults_are_not_owned():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           enforce: false
         """
     )
@@ -118,6 +120,7 @@ def test_to_api_nests_controls_the_way_aqua_does():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockContainerExec: true
             driftPrevention:
@@ -153,6 +156,7 @@ def test_gated_controls_write_their_enabled_flag_too():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockContainerExec: true
             blockReverseShell: true
@@ -173,6 +177,7 @@ def test_gate_follows_the_control_when_turned_off():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockContainerExec: false
         """
@@ -189,6 +194,7 @@ def test_gates_are_owned_so_the_diff_can_revert_them():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockContainerExec: true
         """
@@ -214,10 +220,13 @@ def test_to_api_omits_everything_the_user_did_not_set():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           enforce: false
         """
     )
-    assert FIELD_MAP.to_api(canonical_of(resource)) == {"enforce": False}
+    assert FIELD_MAP.to_api(canonical_of(resource)) == {
+        "enforce": False, "application_scopes": ["DevTest"],
+    }
 
 
 def test_enum_values_project_as_plain_strings():
@@ -228,10 +237,13 @@ def test_enum_values_project_as_plain_strings():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           runtimeType: container
         """
     )
-    assert FIELD_MAP.to_api(canonical_of(resource)) == {"runtime_type": "container"}
+    assert FIELD_MAP.to_api(canonical_of(resource)) == {
+        "runtime_type": "container", "application_scopes": ["DevTest"],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -311,12 +323,13 @@ def test_write_always_uses_the_current_api_name():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             onlyRegisteredImages: true
         """
     )
     api = FIELD_MAP.to_api(canonical_of(resource))
-    assert api == {"only_registered_images": True}
+    assert api == {"only_registered_images": True, "application_scopes": ["DevTest"]}
     assert "block_unregistered_images" not in api
 
 
@@ -351,11 +364,14 @@ def test_the_demo_field_maps_to_the_name_the_tenant_actually_uses():
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockNonCompliantImages: false
         """
     )
-    assert FIELD_MAP.to_api(canonical_of(resource)) == {"block_disallowed_images": False}
+    assert FIELD_MAP.to_api(canonical_of(resource)) == {
+        "block_disallowed_images": False, "application_scopes": ["DevTest"],
+    }
 
 
 def test_the_retired_name_is_still_accepted_on_read():

@@ -123,7 +123,23 @@ class RuntimePolicySpec(RenameableSpec):
     enforceAfterDays: int | None = None
     runtimeType: RuntimeType = RuntimeType.CONTAINER
 
-    applicationScopes: list[str] = Field(default_factory=list)
+    applicationScopes: list[str] = Field(
+        min_length=1,
+        description=(
+            "The application scopes this policy applies to. Required: when Aqua "
+            "is given none it applies the policy to Global, meaning every "
+            "workload. Write [\"Global\"] if that is what you intend."
+        ),
+    )
+    """Required, with at least one entry.
+
+    Aqua's own default for a policy with no scopes is ``["Global"]`` -- every
+    workload (verified live). Writing ``["Global"]`` here produces exactly that
+    policy; what is not allowed is getting it by leaving the field out, because
+    in config-as-code an omission is far more often a mistake than a decision,
+    and in enforce mode this one blocks workloads everywhere. Export always
+    writes the scopes it reads, so adopting existing policies is unaffected.
+    """
     excludeApplicationScopes: list[str] | None = None
 
     controls: Controls = Field(default_factory=Controls)
@@ -133,7 +149,7 @@ class RuntimePolicy(Resource):
     apiVersion: str = API_VERSION
     kind: str = KIND
     metadata: Metadata
-    spec: RuntimePolicySpec = Field(default_factory=RuntimePolicySpec)
+    spec: RuntimePolicySpec
 
 
 # --------------------------------------------------------------------------- #

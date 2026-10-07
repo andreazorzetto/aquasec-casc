@@ -33,6 +33,7 @@ MINIMAL = """
     metadata:
       name: devtest-baseline
     spec:
+      applicationScopes: ["DevTest"]
       enforce: false
       controls:
         blockNonCompliantImages: false
@@ -76,6 +77,7 @@ def test_aqua_name_can_differ_for_adoption(tmp_path):
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           aquaName: "Dev Test Baseline"
         """,
     )
@@ -94,6 +96,7 @@ def test_unknown_field_is_rejected_with_a_suggestion(tmp_path):
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           controls:
             blockContainerExecc: true
         """,
@@ -118,6 +121,7 @@ def test_unknown_field_without_a_near_match_points_at_the_escape_hatch(tmp_path)
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           somethingEntirelyMadeUp: true
         """,
     )
@@ -138,6 +142,7 @@ def test_escape_hatch_downgrades_unknown_fields_to_warnings(tmp_path):
           annotations:
             {ALLOW_UNKNOWN_ANNOTATION}: "true"
         spec:
+          applicationScopes: ["DevTest"]
           somethingEntirelyMadeUp: true
           enforce: false
         """,
@@ -162,6 +167,7 @@ def test_escape_hatch_does_not_suppress_real_type_errors(tmp_path):
           annotations:
             {ALLOW_UNKNOWN_ANNOTATION}: "true"
         spec:
+          applicationScopes: ["DevTest"]
           enforce: "not-a-boolean-at-all"
         """,
     )
@@ -180,6 +186,7 @@ def test_every_problem_is_reported_not_just_the_first(tmp_path):
         metadata:
           name: devtest-baseline
         spec:
+          applicationScopes: ["DevTest"]
           enforce: "nope"
           enabled: "also-nope"
         """,
@@ -255,11 +262,15 @@ def test_multi_document_file(tmp_path):
         kind: RuntimePolicy
         metadata:
           name: one
+        spec:
+          applicationScopes: ["DevTest"]
         ---
         apiVersion: config.aquasec.com/v1alpha1
         kind: RuntimePolicy
         metadata:
           name: two
+        spec:
+          applicationScopes: ["DevTest"]
         """,
     )
     result = load_file(path)
@@ -306,3 +317,84 @@ def test_shipped_examples_are_valid():
     assert devtest.spec.enforce is False
     assert devtest.spec.controls.blockNonCompliantImages is False
     assert devtest.spec.controls.driftPrevention.exceptions == ["redis-*"]
+
+
+# --------------------------------------------------------------------------- #
+# applicationScopes is required
+# --------------------------------------------------------------------------- #
+
+
+def test_a_policy_without_scopes_is_rejected_and_the_error_says_why(tmp_path):
+    """Aqua's default for no scopes is Global -- every workload.
+
+    Getting that by omission is the mistake this rule prevents; the error must
+    explain it, not just say "required".
+    """
+    path = write(
+        tmp_path,
+        "p.yaml",
+        """
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata:
+          name: devtest-baseline
+        spec:
+          enforce: true
+        """,
+    )
+    with pytest.raises(SchemaError) as exc:
+        load_file(path)
+    rendered = exc.value.render()
+    assert "spec.applicationScopes: required" in rendered
+    assert "Global" in rendered and "every" in rendered
+
+
+def test_an_empty_scope_list_is_rejected_too(tmp_path):
+    """[] would fall through to the same Global default."""
+    path = write(
+        tmp_path,
+        "p.yaml",
+        """
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata:
+          name: devtest-baseline
+        spec:
+          applicationScopes: []
+        """,
+    )
+    with pytest.raises(SchemaError) as exc:
+        load_file(path)
+    assert "spec.applicationScopes" in exc.value.render()
+
+
+def test_global_is_allowed_when_written_explicitly(tmp_path):
+    path = write(
+        tmp_path,
+        "p.yaml",
+        """
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata:
+          name: everything
+        spec:
+          applicationScopes: ["Global"]
+        """,
+    )
+    assert load_file(path).resources[0].spec.applicationScopes == ["Global"]
+
+
+def test_a_document_without_spec_is_rejected(tmp_path):
+    path = write(
+        tmp_path,
+        "p.yaml",
+        """
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata:
+          name: devtest-baseline
+        """,
+    )
+    with pytest.raises(SchemaError) as exc:
+        load_file(path)
+    assert "spec: required" in exc.value.render()

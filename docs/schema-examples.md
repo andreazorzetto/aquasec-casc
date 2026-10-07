@@ -51,6 +51,7 @@ Two fields worth explaining, because they are the safety model:
 | Field | Meaning |
 |---|---|
 | `spec.enforcement` | `Reconcile` corrects drift. `ReportOnly` reports it and changes nothing — how you watch a policy before trusting the tool with it. |
+| `spec.applicationScopes` | Required. Aqua's default for a policy with no scopes is Global — every workload — so getting that by leaving the field out is refused. Write `["Global"]` if that is what you mean. |
 | `spec.deletionPolicy` | `Orphan` (the default) means removing the file leaves the policy in Aqua. `Delete` additionally requires `--allow-delete` on the run. |
 
 ### The canonical names are ours, not Aqua's
