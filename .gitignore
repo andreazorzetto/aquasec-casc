@@ -1,0 +1,31 @@
+# Credentials -- never, under any circumstances, in this repo.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.enc
+
+# Enforcer tokens land in files when running standalone (see spec.tokenSecretRef).
+*.token
+tokens/
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+.DS_Store
+.idea/
+.vscode/
+
+# Aqua docs export (2,980 pages, ~10MB). Login-gated vendor content -- kept
+# locally as a development reference, not distributed with the repo.
+reference/aqua-docs-index.json

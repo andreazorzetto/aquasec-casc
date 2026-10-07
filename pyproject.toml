@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aqua-casc"
+version = "0.1.0"
+description = "Config-as-code for Aqua Security: canonical YAML schema, reconciler, and run-once CLI for GitOps workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Pinned deliberately: this ships as a single mirrorable image into an air-gapped
+# environment, where "resolves to whatever is latest" is not a thing that can happen.
+dependencies = [
+    "pydantic==2.13.4",
+    "PyYAML==6.0.2",
+    "requests==2.32.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+]
+
+[project.scripts]
+# Name is a placeholder pending Andrea's decision; it is referenced in exactly one
+# place in code (aqua_casc.cli.NAME), so changing it is a two-line edit.
+aqua-casc = "aqua_casc.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

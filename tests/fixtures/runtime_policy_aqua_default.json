@@ -1,0 +1,265 @@
+{
+  "runtime_type": "container",
+  "runtime_mode": 0,
+  "name": "Aqua default runtime policy",
+  "description": "The default Aqua runtime policy",
+  "created": "2022-09-12T19:24:48.336573Z",
+  "author": "System",
+  "version": "1.0",
+  "lastupdate": 0,
+  "updated": "2026-09-02T11:19:35.098988Z",
+  "is_auto_generated": false,
+  "is_ootb_policy": true,
+  "enforce_after_days": 0,
+  "enforce_scheduler_added_on": 0,
+  "is_audit_checked": false,
+  "permission": "Write",
+  "application_scopes": [
+    "Global"
+  ],
+  "exclude_application_scopes": [],
+  "image_name": "",
+  "repo_name": "",
+  "cve": "",
+  "resource_type": "",
+  "resource_name": "",
+  "vpatch_version": "",
+  "digest": "",
+  "enabled": false,
+  "type": "runtime.policy",
+  "enforce": false,
+  "allowed_executables": {
+    "enabled": false,
+    "allow_executables": [],
+    "separate_executables": false,
+    "allow_root_executables": []
+  },
+  "allowed_registries": {
+    "enabled": false,
+    "allowed_registries": []
+  },
+  "executable_blacklist": {
+    "enabled": true,
+    "executables": []
+  },
+  "drift_prevention": {
+    "enabled": true,
+    "exec_lockdown": true,
+    "exec_lockdown_scripts": false,
+    "image_lockdown": false,
+    "exec_lockdown_white_list": [],
+    "exec_lockdown_inherit_to_child": false
+  },
+  "restricted_volumes": {
+    "enabled": false,
+    "volumes": []
+  },
+  "no_new_privileges": false,
+  "bypass_scope": {
+    "enabled": true,
+    "scope": {
+      "expression": "v1 || v2 || v3",
+      "variables": [
+        {
+          "attribute": "container.label",
+          "value": "*",
+          "name": "com.aquasec.component"
+        },
+        {
+          "attribute": "container.label",
+          "value": "kube-system",
+          "name": "io.kubernetes.pod.namespace"
+        },
+        {
+          "attribute": "container.label",
+          "value": "podsandbox",
+          "name": "io.kubernetes.docker.type"
+        }
+      ]
+    }
+  },
+  "limit_container_privileges": {
+    "enabled": false,
+    "privileged": false,
+    "netmode": false,
+    "pidmode": false,
+    "utsmode": false,
+    "usermode": false,
+    "ipcmode": false,
+    "prevent_root_user": false,
+    "prevent_low_port_binding": false,
+    "block_add_capabilities": false,
+    "use_host_user": false
+  },
+  "scope": {
+    "expression": "",
+    "variables": []
+  },
+  "only_registered_images": false,
+  "block_disallowed_images": true,
+  "block_non_compliant_workloads": false,
+  "auditing": {
+    "enabled": false,
+    "audit_all_processes": false,
+    "audit_process_config": {},
+    "audit_process_cmdline": false,
+    "audit_all_network": false,
+    "audit_network_config": {},
+    "audit_os_user_activity": false,
+    "audit_success_login": false,
+    "audit_failed_login": false,
+    "audit_user_account_management": false
+  },
+  "blacklisted_os_users": {
+    "enabled": false,
+    "group_black_list": [],
+    "user_black_list": []
+  },
+  "whitelisted_os_users": {
+    "enabled": false,
+    "user_white_list": [],
+    "group_white_list": []
+  },
+  "file_block": {
+    "enabled": true,
+    "filename_block_list": [],
+    "exceptional_block_files": [],
+    "block_files_users": [],
+    "block_files_processes": [],
+    "exceptional_block_files_users": [],
+    "exceptional_block_files_processes": []
+  },
+  "package_block": {
+    "enabled": false,
+    "packages_black_list": [],
+    "exceptional_block_packages_files": null,
+    "block_packages_users": null,
+    "block_packages_processes": null,
+    "exceptional_block_packages_users": null,
+    "exceptional_block_packages_processes": null
+  },
+  "linux_capabilities": {
+    "enabled": false,
+    "remove_linux_capabilities": []
+  },
+  "port_block": {
+    "enabled": false,
+    "block_inbound_ports": [],
+    "block_outbound_ports": []
+  },
+  "tripwire": {
+    "enabled": false,
+    "user_id": "",
+    "user_password": "",
+    "apply_on": [],
+    "serverless_app": ""
+  },
+  "readonly_files": {
+    "enabled": false,
+    "readonly_files": null,
+    "exceptional_readonly_files": null,
+    "readonly_files_processes": null,
+    "exceptional_readonly_files_processes": null,
+    "readonly_files_users": null,
+    "exceptional_readonly_files_users": null
+  },
+  "file_integrity_monitoring": {
+    "enabled": false,
+    "monitored_files": [],
+    "exceptional_monitored_files": [],
+    "monitored_files_read": false,
+    "monitored_files_modify": false,
+    "monitored_files_attributes": false,
+    "monitored_files_create": false,
+    "monitored_files_delete": false,
+    "monitored_files_processes": [],
+    "exceptional_monitored_files_processes": [],
+    "monitored_files_users": [],
+    "exceptional_monitored_files_users": []
+  },
+  "malware_scan_options": {
+    "enabled": false,
+    "include_directories": [],
+    "exclude_directories": [],
+    "exclude_processes": [],
+    "action": "",
+    "file_forensic_collection": true,
+    "selective_memory_dump_collection": true
+  },
+  "registry_access_monitoring": {
+    "enabled": false,
+    "monitored_registry_paths": [],
+    "exceptional_monitored_registry_paths": [],
+    "monitored_registry_users": [],
+    "exceptional_monitored_registry_users": [],
+    "monitored_registry_processes": [],
+    "exceptional_monitored_registry_processes": [],
+    "monitored_registry_create": false,
+    "monitored_registry_read": false,
+    "monitored_registry_modify": false,
+    "monitored_registry_delete": false,
+    "monitored_registry_attributes": false
+  },
+  "readonly_registry": {
+    "enabled": false,
+    "readonly_registry_paths": [],
+    "exceptional_readonly_registry_paths": [],
+    "readonly_registry_users": [],
+    "exceptional_readonly_registry_users": [],
+    "readonly_registry_processes": [],
+    "exceptional_readonly_registry_processes": []
+  },
+  "system_integrity_protection": {
+    "enabled": false,
+    "audit_systemtime_change": false,
+    "windows_services_monitoring": false,
+    "monitor_audit_log_integrity": false
+  },
+  "container_exec": {
+    "enabled": true,
+    "block_container_exec": true,
+    "container_exec_proc_white_list": [
+      "/ecs-execute-command-*/amazon-ssm-agent",
+      "/ecs-execute-command-*/ssm-session-worker",
+      "/ecs-execute-command-*/ssm-agent-worker"
+    ]
+  },
+  "reverse_shell": {
+    "enabled": true,
+    "block_reverse_shell": true,
+    "reverse_shell_proc_white_list": [],
+    "reverse_shell_ip_white_list": []
+  },
+  "registry": "",
+  "block_container_exec": false,
+  "block_fileless_exec": true,
+  "block_fileless_exec_proc_white_list": null,
+  "block_non_k8s_containers": false,
+  "audit_brute_force_login": false,
+  "default_security_profile": "",
+  "enable_fork_guard": false,
+  "fork_guard_process_limit": 0,
+  "enable_ip_reputation": true,
+  "enable_crypto_mining_dns": true,
+  "enable_port_scan_protection": false,
+  "failed_kubernetes_checks": {
+    "enabled": false,
+    "failed_checks": []
+  },
+  "secure_ai_discovery": {
+    "enabled": false,
+    "ignore_list": null
+  },
+  "secure_ai_protection": {
+    "enabled": false
+  },
+  "secure_ai_unauthorized_models": {
+    "enabled": false,
+    "unauthorized_list": null
+  },
+  "block_outdated_images": {
+    "enabled": false,
+    "threshold_value": 0,
+    "threshold_unit": ""
+  }
+}

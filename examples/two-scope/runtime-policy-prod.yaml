@@ -1,0 +1,29 @@
+# Acceptance/production runtime policy.
+#
+# This is the scope that should enforce. Image-compliance blocking belongs here
+# and only here -- see runtime-policy-devtest.yaml for why having it in both
+# places caused dev/test workloads to be blocked.
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata:
+  name: accprod-baseline
+spec:
+  description: Acceptance/production baseline -- image compliance enforced
+  enabled: true
+  enforce: true                       # enforce mode
+  runtimeType: container
+  applicationScopes:
+    - AccProd
+  controls:
+    blockNonCompliantImages: true
+    blockNonCompliantWorkloads: true
+    blockContainerExec: true
+    blockReverseShell: true
+    blockFilelessExec: true
+    driftPrevention:
+      enabled: true
+      execLockdown: true
+      exceptions:
+        - "redis-*"
+  enforcement: Reconcile
+  deletionPolicy: Orphan
