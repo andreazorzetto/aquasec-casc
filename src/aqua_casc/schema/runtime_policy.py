@@ -14,7 +14,7 @@ from enum import Enum
 
 from pydantic import Field
 
-from .base import API_VERSION, Metadata, RenameableSpec, Resource, StrictModel
+from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
 
 KIND = "RuntimePolicy"
@@ -107,7 +107,7 @@ class Controls(StrictModel):
     auditBruteForceLogin: bool | None = None
 
 
-class RuntimePolicySpec(RenameableSpec):
+class RuntimePolicySpec(ManagedSpec):
     """Desired state of an Aqua runtime policy."""
 
     description: str = ""

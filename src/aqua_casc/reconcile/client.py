@@ -46,6 +46,16 @@ class AquaClient(Protocol):
         """
         ...
 
+    def list(self, kind: KindDef) -> list[dict[str, Any]]:
+        """Every object of this kind, in whatever form the list endpoint gives.
+
+        Used for orphan discovery, so each item must carry the object's name
+        (``kind.name_field``), its ``description`` (the ownership marker) and
+        the built-in flag if the kind has one. For runtime policies the list
+        response carries all three (verified), so this is one call.
+        """
+        ...
+
     def create(self, kind: KindDef, body: dict[str, Any]) -> dict[str, Any]:
         ...
 

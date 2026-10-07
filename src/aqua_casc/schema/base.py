@@ -20,7 +20,7 @@ API_VERSION = f"{GROUP}/{VERSION}"
 
 # DNS-1123 subdomain, as Kubernetes requires of metadata.name. Aqua's own names
 # are more permissive (spaces and capitals are legal there), which is precisely
-# why spec.aquaName exists -- see RenameableSpec below.
+# why spec.aquaName exists -- see ManagedSpec below.
 _DNS_1123 = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")
 
 
@@ -29,13 +29,6 @@ class Enforcement(str, Enum):
 
     RECONCILE = "Reconcile"
     REPORT_ONLY = "ReportOnly"
-
-
-class DeletionPolicy(str, Enum):
-    """What happens to the Aqua object when its file disappears from Git."""
-
-    ORPHAN = "Orphan"
-    DELETE = "Delete"
 
 
 class StrictModel(BaseModel):
@@ -102,56 +95,29 @@ class Condition(StrictModel):
 class ResourceStatus(StrictModel):
     """Written by the tool, never by a human.
 
-    In push mode this lives in the state file rather than on an API server; see
-    ``aqua_casc.reconcile.state``. The shape is identical either way so that the
-    phase 2 operator can write it to ``.status`` unchanged.
+    Phase 1 is stateless and writes no status anywhere: ownership lives on the
+    Aqua object itself (see ``reconcile.marker``). The shape is kept for phase 2,
+    where an operator reports observed state on the custom resource.
     """
 
     aquaName: str | None = None
-    """The name Aqua currently knows this object by.
-
-    Aqua's policy and enforcer-group endpoints are keyed by name in the URL,
-    not by a numeric ID, so this -- not an integer -- is the identity mapping.
-    A desired ``spec.aquaName`` differing from this, for the same
-    ``metadata.name``, is unambiguously a rename.
-    """
-
     aquaId: int | None = None
-    """Aqua's numeric ID where the object carries one.
-
-    Recorded for traceability and for cross-checking a name-based lookup. It is
-    not the lookup key: the REST surface does not accept it as a path segment
-    for any of the kinds we manage.
-    """
-
     observedGeneration: int = 0
-    lastAppliedFields: list[str] = Field(default_factory=list)
-    """API field paths we set on the last successful apply.
-
-    The third input to the three-way diff. Fields on the server outside this
-    list are Aqua defaults or console edits, and are left alone.
-    """
-
     lastSyncTime: str | None = None
     conditions: list[Condition] = Field(default_factory=list)
 
 
-class RenameableSpec(StrictModel):
-    """Spec fields common to every kind whose Aqua identity is its name."""
+class ManagedSpec(StrictModel):
+    """Spec fields common to every kind managed by this tool."""
 
     aquaName: str | None = None
     """The name this object has in Aqua. Defaults to ``metadata.name``.
 
     Set this when the Aqua-side name cannot be expressed as a DNS-1123 name --
-    it has spaces or capitals, or it already exists in the console under a name
-    you would rather not change while adopting it.
+    it has spaces or capitals, as Aqua's own names often do.
     """
 
     enforcement: Enforcement = Enforcement.RECONCILE
-    deletionPolicy: DeletionPolicy = DeletionPolicy.ORPHAN
-    """Defaults to Orphan: removing a file must never silently delete a
-    production enforcement policy. ``Delete`` additionally requires
-    ``--allow-delete`` on the CLI."""
 
 
 class Resource(StrictModel):

@@ -22,6 +22,10 @@ ALLOW_UNKNOWN_ANNOTATION = "config.aquasec.com/allow-unknown-fields"
 
 YAML_SUFFIXES = (".yaml", ".yml")
 
+#: The tool's own configuration file at the root of a config directory. It is
+#: settings (the instance name), not a resource, so the loader skips it.
+CONFIG_FILENAMES = ("aqua-casc.yaml", "aqua-casc.yml")
+
 
 @dataclass
 class LoadResult:
@@ -240,8 +244,7 @@ def load_dir(path: Path | str) -> LoadResult:
     group = SchemaErrorGroup()
 
     for file in sorted(p for p in path.rglob("*") if p.suffix in YAML_SUFFIXES):
-        # The state file lives alongside the config but is not config.
-        if ".aqua-casc" in file.parts:
+        if file.parent == path and file.name in CONFIG_FILENAMES:
             continue
         try:
             loaded = load_file(file)

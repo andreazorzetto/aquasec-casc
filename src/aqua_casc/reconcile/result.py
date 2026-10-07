@@ -2,9 +2,8 @@
 
 Result objects, never printed output. The reconciler does not know whether it is
 running under a CLI, an Argo CD hook or a future operator, so it describes what
-happened and lets the caller render it. This is the rule most easily broken and
-the one that makes phase 2 cheap, so it is worth restating: nothing in this
-package prints, and nothing calls ``sys.exit``.
+happened and lets the caller render it. Nothing in this package prints, and
+nothing calls ``sys.exit``.
 """
 
 from __future__ import annotations
@@ -13,38 +12,45 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .diff import Plan
-from .state import RenameDetected
 
 
 class Outcome(str, Enum):
     IN_SYNC = "in-sync"
     CREATED = "created"
     UPDATED = "updated"
+
+    ADOPTED = "adopted"
+    """An existing object without our marker now carries it. The first apply
+    after an export: nothing else changed, the tool has taken ownership."""
+
     DELETED = "deleted"
-    RENAMED = "renamed"
 
     PLANNED = "planned"
-    """Dry run: this is what would happen."""
+    """Dry run: this is what would happen (see ``Result.action``)."""
 
     DRIFT_DETECTED = "drift-detected"
-    """ReportOnly: drift found, deliberately not corrected."""
+    """``spec.enforcement: ReportOnly``: drift found, deliberately not corrected."""
 
     BLOCKED = "blocked"
-    """Refused for safety. Needs an explicit flag to proceed."""
+    """Refused for safety, e.g. the object is owned by another instance."""
+
+    ORPHANED = "orphaned"
+    """Carries our marker, has no file, and was not deleted -- because of
+    ``--no-delete``, or because Aqua does not allow deleting it."""
 
     FAILED = "failed"
 
 
 #: Outcomes that mean the tenant was actually modified.
-MUTATING = frozenset({Outcome.CREATED, Outcome.UPDATED, Outcome.DELETED, Outcome.RENAMED})
+MUTATING = frozenset({Outcome.CREATED, Outcome.UPDATED, Outcome.ADOPTED, Outcome.DELETED})
 
-#: Outcomes a pipeline should gate on -- these drive exit code 2.
-PENDING = frozenset({Outcome.PLANNED, Outcome.DRIFT_DETECTED, Outcome.BLOCKED})
+#: Outcomes that leave Git and Aqua apart.
+PENDING = frozenset({Outcome.PLANNED, Outcome.DRIFT_DETECTED, Outcome.BLOCKED, Outcome.ORPHANED})
 
 
 @dataclass
 class Result:
-    """The outcome of reconciling one resource."""
+    """The outcome of reconciling one object."""
 
     kind: str
     name: str
@@ -52,9 +58,20 @@ class Result:
 
     aqua_name: str | None = None
     plan: Plan | None = None
-    rename: RenameDetected | None = None
     message: str = ""
     reason: str = ""
+
+    action: str = ""
+    """For PLANNED: create, adopt, update or delete."""
+
+    not_allowed: list[str] = field(default_factory=list)
+    """Desired changes withheld because Aqua does not allow them (e.g. the scope
+    of a predefined policy). The rest of the change is still applied."""
+
+    informational: bool = False
+    """Reported, but nothing anyone could do will resolve it -- so it never
+    counts as pending (an orphaned predefined policy, which Aqua cannot delete,
+    would otherwise pin exit code 2 forever)."""
 
     @property
     def ref(self) -> str:
@@ -66,8 +83,9 @@ class Result:
 
     @property
     def pending(self) -> bool:
-        """Something a pipeline should notice but which was not applied."""
-        return self.outcome in PENDING
+        if self.informational:
+            return False
+        return self.outcome in PENDING or bool(self.not_allowed)
 
     @property
     def failed(self) -> bool:
@@ -99,35 +117,38 @@ class RunSummary:
     def changed(self) -> list[Result]:
         return [r for r in self.results if r.changed]
 
-    def exit_code(self) -> int:
-        """Follows ``terraform plan -detailed-exitcode``.
+    def exit_code(self, detailed: bool = True) -> int:
+        """1 on any failure. Otherwise 2 if ``detailed`` and anything is pending, else 0.
 
-        0 success and nothing outstanding, 1 error, 2 changes present or drift
-        detected. Exit code 2 is what lets a pipeline gate on drift, so it must
-        not be conflated with failure.
+        ``diff`` always runs detailed: reporting pending changes is its job.
+        ``apply`` runs detailed only with ``--detailed-exitcode``, because Argo CD
+        fails a sync on any non-zero hook exit -- a routine apply that leaves a
+        held-back orphan must not block every future sync.
         """
         if self.failed:
             return 1
-        if self.pending:
+        if detailed and self.pending:
             return 2
         return 0
 
     def summary_line(self) -> str:
-        """Always printed by the CLI, e.g. ``3 unchanged, 1 updated, 0 created``."""
+        """Always printed, e.g. ``3 unchanged, 1 created, 1 updated, 0 adopted, 0 deleted``."""
         counts = {
             "unchanged": len(self.of(Outcome.IN_SYNC)),
             "created": len(self.of(Outcome.CREATED)),
             "updated": len(self.of(Outcome.UPDATED)),
-            "renamed": len(self.of(Outcome.RENAMED)),
+            "adopted": len(self.of(Outcome.ADOPTED)),
             "deleted": len(self.of(Outcome.DELETED)),
             "planned": len(self.of(Outcome.PLANNED)),
             "drifted": len(self.of(Outcome.DRIFT_DETECTED)),
             "blocked": len(self.of(Outcome.BLOCKED)),
+            "orphaned": len(self.of(Outcome.ORPHANED)),
             "failed": len(self.of(Outcome.FAILED)),
         }
-        # Always show the core four; show the rest only when non-zero, so the
-        # common case stays short without hiding anything that happened.
-        always = ("unchanged", "created", "updated", "deleted")
+        always = ("unchanged", "created", "updated", "adopted", "deleted")
         parts = [f"{counts[k]} {k}" for k in always]
         parts += [f"{v} {k}" for k, v in counts.items() if k not in always and v]
+        not_allowed = sum(1 for r in self.results if r.not_allowed)
+        if not_allowed:
+            parts.append(f"{not_allowed} with changes not allowed")
         return ", ".join(parts)

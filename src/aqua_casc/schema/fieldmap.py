@@ -159,10 +159,9 @@ class FieldMap:
     def owned_api_paths(self, canonical: dict) -> list[str]:
         """The API paths this document claims ownership of.
 
-        This is the ``lastAppliedFields`` basis for the three-way diff: the set
-        of API fields we set on the last successful apply. Anything outside this
-        set that appears on the server is Aqua's default or a console edit, and
-        is left alone.
+        These are the fields the reconciler manages: the ones the YAML mentions.
+        Anything outside this set that appears on the server is Aqua's default
+        or a console edit, and is left alone.
         """
         owned: list[str] = []
         for m in self.mappings:

@@ -94,6 +94,7 @@ def _console_url(credentials: Credentials, token: str) -> str:
 
 @dataclass(frozen=True)
 class _Ops:
+    list: Callable[..., Any]
     get: Callable[..., Any]
     create: Callable[..., Any]
     update: Callable[..., Any]
@@ -102,6 +103,9 @@ class _Ops:
 
 def _runtime_policy_ops() -> _Ops:
     return _Ops(
+        # The list response carries name, description and is_ootb_policy for
+        # every policy (verified), so orphan discovery is one paginated call.
+        list=lambda c: rp.get_all_runtime_policies(c.server, c.token, timeout=c.timeout),
         get=lambda c, name: rp.get_runtime_policy(c.server, c.token, name, timeout=c.timeout),
         create=lambda c, body: rp.create_runtime_policy(c.server, c.token, body, timeout=c.timeout),
         update=lambda c, name, body: rp.update_runtime_policy(c.server, c.token, name, body,
@@ -138,6 +142,14 @@ class AquasecClient:
                 f"(supported: {', '.join(supported_kinds())})"
             )
         return factory()
+
+    def list(self, kind: KindDef) -> list[dict]:
+        try:
+            return list(self._ops(kind).list(self))
+        except ClientError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise _translate(exc, f"Listing {kind.kind} objects") from None
 
     def get(self, kind: KindDef, name: str) -> dict | None:
         try:

@@ -189,3 +189,19 @@ def test_an_unsupported_kind_is_a_clear_error(client):
 def test_every_registered_kind_is_served_by_the_client():
     """A kind in the schema registry the client cannot serve is a build error."""
     assert set(registry.kinds()) <= set(ac.supported_kinds())
+
+
+@patch.object(ac.rp, "get_all_runtime_policies",
+              return_value=[{"name": "a", "description": "x", "is_ootb_policy": False}])
+def test_list_is_one_paginated_call(get_all, client):
+    """The runtime list response carries name, description and the built-in flag."""
+    assert client.list(KIND) == [{"name": "a", "description": "x", "is_ootb_policy": False}]
+    assert get_all.call_args.args == ("https://t", "tok")
+    assert get_all.call_args.kwargs == {"timeout": 9}
+
+
+@patch.object(ac.rp, "get_all_runtime_policies", side_effect=ApiError("HTTP 403", status_code=403))
+def test_list_failures_become_client_errors(_get_all, client):
+    with pytest.raises(ClientError) as exc:
+        client.list(KIND)
+    assert exc.value.status == 403 and "Listing RuntimePolicy" in str(exc.value)

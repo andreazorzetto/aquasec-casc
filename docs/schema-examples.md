@@ -1,7 +1,7 @@
 # Schema examples
 
 Every resource uses the Kubernetes shape — `apiVersion`, `kind`, `metadata`,
-`spec`, `status` — even though phase 1 does not involve Kubernetes at all.
+`spec` — even though phase 1 does not involve Kubernetes at all.
 
 Three reasons: it is the lingua franca of this space, it gives schema versioning
 and validation conventions for free, and it means the phase 2 CRDs are these
@@ -12,7 +12,7 @@ same objects rather than a translation of them.
   kind:       RuntimePolicy                   which sort of object
   metadata:                                   identity — name, labels
   spec:                                       what you want. Humans edit this.
-  status:                                     what happened. The tool writes this.
+  status:                                     phase 2 only: what the operator observed.
 ```
 
 ---
@@ -43,7 +43,6 @@ spec:
       exceptions:
         - "redis-*"
   enforcement: Reconcile              # Reconcile | ReportOnly
-  deletionPolicy: Orphan              # Orphan | Delete
 ```
 
 Two fields worth explaining, because they are the safety model:
@@ -52,7 +51,7 @@ Two fields worth explaining, because they are the safety model:
 |---|---|
 | `spec.enforcement` | `Reconcile` corrects drift. `ReportOnly` reports it and changes nothing — how you watch a policy before trusting the tool with it. |
 | `spec.applicationScopes` | Required. Aqua's default for a policy with no scopes is Global — every workload — so getting that by leaving the field out is refused. Write `["Global"]` if that is what you mean. |
-| `spec.deletionPolicy` | `Orphan` (the default) means removing the file leaves the policy in Aqua. `Delete` additionally requires `--allow-delete` on the run. |
+| *(deletion)* | Not a field. Removing a file from Git deletes the object on the next `apply`; `--no-delete` on a run holds deletions back. See `docs/architecture.md`. |
 
 ### The canonical names are ours, not Aqua's
 
@@ -66,41 +65,30 @@ are not always on the same one.
 
 ---
 
-## status — written by the tool, never by a human
+## Ownership — on the object, not in a file
 
-In push mode there is no Kubernetes API server to hold `status`, so it lives in
-`.aqua-casc/state.yaml` beside the config. This is genuine output from a run
-against the two example policies:
+The tool keeps no state. When it writes an object, the object's description
+carries an ownership marker on its own line. This is what Aqua holds for the
+example above after an `apply`:
 
-```yaml
-version: 1
-resources:
-  RuntimePolicy/devtest-baseline:
-    aquaName: devtest-baseline
-    aquaId: 4471
-    observedGeneration: 1
-    lastAppliedFields:
-    - application_scopes
-    - block_disallowed_images
-    - container_exec.block_container_exec
-    - container_exec.enabled
-    - description
-    - drift_prevention.enabled
-    - drift_prevention.exec_lockdown
-    - drift_prevention.exec_lockdown_white_list
-    - enabled
-    - enforce
-    - runtime_type
-    lastSyncTime: '2026-09-15T13:38:13Z'
+```
+Dev/test baseline -- no image-compliance enforcement
+
+managed-by: aqua-casc/platform
 ```
 
-`lastAppliedFields` is the third input to the three-way diff — the record of
-which fields are *ours*. Anything on the server outside that list is an Aqua
-default or a console edit, and is left alone.
+`platform` is the instance name, from a small committed file at the root of the
+config directory:
 
-`aquaName` is the identity mapping. Aqua keys its endpoints by name in the URL,
-so this — not a numeric ID — is what ties a file in Git to an object in Aqua.
-`aquaId` is recorded for traceability only.
+```yaml
+# aqua-casc.yaml
+instance: platform
+```
+
+The marker is how the tool tells its own objects from console-made ones and
+from another team's, which is what makes deletion safe: only objects carrying
+*this* instance's marker are ever deleted. `export` strips it from the YAML it
+writes, and an apply puts it back if someone removes it in the console.
 
 ---
 
@@ -124,7 +112,6 @@ spec:
     namespace: aqua
     key: token
   enforcement: Reconcile
-  deletionPolicy: Orphan
 ```
 
 Gateways are deliberately not part of the schema: Aqua assigns them by
@@ -132,7 +119,7 @@ default, so the tool leaves them to Aqua rather than owning a field nobody sets.
 
 The token comes back from Aqua on create and is written only to the destination
 named in `tokenSecretRef` — a Kubernetes Secret in-cluster, or a file path when
-standalone. It never reaches stdout, logs, or the state file, and there are
+standalone. It never reaches stdout or logs, and there are
 tests asserting that.
 
 ### AssurancePolicy
@@ -152,7 +139,6 @@ spec:
     blockOnMalware: true
     requiredLabels: ["owner"]
   enforcement: Reconcile
-  deletionPolicy: Orphan
 ```
 
 ---
@@ -179,11 +165,11 @@ spec:
     served: true
     storage: true
     subresources:
-      status: {}                      # the same status block as above
+      status: {}                      # filled by the phase 2 operator
     schema:
       openAPIV3Schema: ...            # generated from the same models
 ```
 
-Same `apiVersion`. Same `kind`. Same `spec`. Same `status`. In phase 2 the files
+Same `apiVersion`. Same `kind`. Same `spec`. In phase 2 the files
 above stop being read from a directory and start being applied to a cluster —
 the documents themselves do not change.

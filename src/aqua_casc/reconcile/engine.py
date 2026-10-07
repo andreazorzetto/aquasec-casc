@@ -1,344 +1,300 @@
-"""Reconcile desired state against a live Aqua tenant.
+"""Reconcile desired state against a live Aqua tenant. Stateless.
 
-Prints nothing, exits nothing, imports nothing from the CLI. The same function
-serves ``diff`` (dry_run=True), ``apply`` (dry_run=False), and -- in phase 2 --
-an operator's reconcile loop, unchanged.
+There is no state file. Each run compares what Git says with what Aqua has:
+
+* every field the YAML mentions is ours, and is corrected when it drifts;
+* every field the YAML does not mention belongs to Aqua or the console, and is
+  left alone;
+* ownership of the object itself is the marker in its description
+  (``marker``), which also tells this instance's objects apart from another's.
+
+The same function serves ``diff`` (dry run), ``apply``, and -- in phase 2 -- an
+operator's reconcile loop. It prints nothing and exits nothing.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Iterable
 
 from ..schema.base import Enforcement, Resource
-from ..schema.registry import KindDef
+from ..schema.registry import REGISTRY, KindDef
+from . import marker
 from .client import AquaClient, ClientError
-from .diff import ReleasePolicy, three_way_diff
+from .diff import Plan, flatten, three_way_diff
 from .result import Outcome, Result, RunSummary
-from .state import RenameDetected, StateBackend, StateError
+from .state import NoopStateBackend, StateBackend, StateError, assert_not_ownable
 
 
 @dataclass(frozen=True)
 class Options:
-    """Safety switches. Every default is the cautious one."""
+    instance: str
+    """Which deployment of the tool this is. Written into the ownership marker."""
 
     dry_run: bool = False
 
-    release_policy: ReleasePolicy = ReleasePolicy.RETAIN
+    no_delete: bool = False
+    """Report orphans instead of deleting them (``--no-delete``)."""
 
-    allow_rename: bool = False
-    """Required to rename an object in an enforce-mode scope.
+    allow_empty: bool = False
+    """Allow deletions when no resources were loaded at all (``--allow-empty``).
 
-    A rename is create-new-then-delete-old, because Aqua has no rename
-    primitive. In audit mode that is safe enough to do automatically. In
-    enforce mode there is a window where both policies exist and both apply,
-    and two policies covering the same images is the shape of the incident this
-    tool was built to prevent -- so that case asks first.
+    Off by default, like Argo CD's ``allowEmpty``: an empty config directory --
+    a wrongly mounted ConfigMap, a bad path -- is far more likely a mistake than
+    an instruction to delete everything this instance owns."""
+
+    kinds: tuple[KindDef, ...] = field(default_factory=lambda: tuple(REGISTRY.values()))
+    """Kinds scanned for orphans. Defaults to every registered kind."""
+
+
+# --------------------------------------------------------------------------- #
+# Built-ins
+# --------------------------------------------------------------------------- #
+
+def is_shipped(kind: KindDef, obj: dict | None) -> bool:
+    """Aqua-shipped: never created or deleted by the tool."""
+    return bool(kind.builtin_field and obj and obj.get(kind.builtin_field) is True)
+
+
+def is_predefined(kind: KindDef, obj: dict | None, name: str) -> bool:
+    """Predefined: shipped *and* on the named list, so certain fields are locked.
+
+    Both are required. The flag stops a customer's own policy that happens to
+    reuse a predefined name from being treated as predefined; the name picks
+    the locked ones out of everything Aqua ships.
     """
-
-    allow_delete: bool = False
-    """Required, in addition to ``spec.deletionPolicy: Delete``, before
-    anything is removed. Two independent opt-ins, per resource and per run."""
-
-    allow_recreate_missing: bool = False
-    """Required to recreate an object that state says we manage but Aqua no
-    longer has. Silently recreating it could resurrect a policy somebody
-    deliberately removed, so by default this stops and asks."""
+    return is_shipped(kind, obj) and name in kind.predefined
 
 
-def _canonical(resource: Resource) -> dict:
-    """Only the fields the author actually wrote.
+def _touches(path: str, prefixes: Iterable[str]) -> bool:
+    return any(path == p or path.startswith(p + ".") for p in prefixes)
+
+
+# --------------------------------------------------------------------------- #
+# One resource
+# --------------------------------------------------------------------------- #
+
+def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: str) -> dict:
+    """The API object the YAML asks for, with the ownership marker in place.
 
     ``exclude_unset`` is load-bearing: a schema default is not a statement of
-    intent, and treating one as owned would make the first apply write our
-    defaults over the console's configuration.
+    intent, so only fields the author wrote are owned.
+
+    The marker goes into the description. If the YAML sets a description, that
+    text plus the marker is what we want. If it does not, the console's text is
+    kept and the marker appended -- the tool must not wipe a description nobody
+    asked it to manage.
     """
-    return resource.model_dump(exclude_unset=True, mode="json")
+    canonical = resource.model_dump(exclude_unset=True, mode="json")
+    desired = kind.field_map.to_api(canonical)
+
+    if kind.collection:
+        spec = canonical.get("spec") or {}
+        text = spec["description"] if "description" in spec else (actual or {}).get("description")
+        desired["description"] = marker.compose(text, instance)
+
+    assert_not_ownable(list(flatten(desired)), where=resource.ref)
+    return desired
 
 
 def reconcile(
     resource: Resource,
     kind: KindDef,
-    state: StateBackend,
     client: AquaClient,
-    options: Options | None = None,
+    options: Options,
+    state: StateBackend | None = None,
 ) -> Result:
     """Bring one resource into line, or describe what it would take."""
-    options = options or Options()
-
-    canonical = _canonical(resource)
-    desired = kind.field_map.to_api(canonical)
-    owned = kind.field_map.owned_api_paths(canonical)
-
-    recorded = state.get(resource.kind, resource.metadata.name)
-    desired_aqua_name = resource.aqua_name
-
-    # Look the object up under the name we last saw it as. Falling back to the
-    # desired name is what makes adoption work on a tenant we have never
-    # touched: no state, so look for what the file calls it.
-    lookup_name = recorded.aquaName if (recorded and recorded.aquaName) else desired_aqua_name
-
-    rename = state.detect_rename(
-        resource.kind, resource.metadata.name, desired_aqua_name
-    )
+    state = state or NoopStateBackend()
+    name = resource.aqua_name
+    common = dict(kind=resource.kind, name=resource.metadata.name, aqua_name=name)
+    report_only = getattr(resource.spec, "enforcement", None) is Enforcement.REPORT_ONLY
 
     try:
-        actual = client.get(kind, lookup_name)
+        actual = client.get(kind, name)
     except ClientError as exc:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.FAILED,
-            aqua_name=lookup_name, message=str(exc), reason="LookupFailed",
-        )
+        return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="LookupFailed")
 
-    if rename is not None:
-        return _handle_rename(
-            resource, kind, state, client, options, rename, actual, desired, owned
-        )
+    try:
+        desired = _desired(resource, kind, actual, options.instance)
+    except StateError as exc:
+        return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="Refused")
 
+    # ---- missing: create it (this is also how a console deletion is undone) --
     if actual is None:
-        return _handle_absent(
-            resource, kind, state, client, options, recorded, desired_aqua_name,
-            desired, owned,
-        )
+        body = dict(desired)
+        body[kind.name_field] = name
+        plan = three_way_diff(desired=body, actual={})
+        if options.dry_run:
+            return Result(**common, outcome=Outcome.PLANNED, action="create", plan=plan,
+                          reason="CreateRequired")
+        if report_only:
+            return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, reason="Missing",
+                          message="does not exist in Aqua; ReportOnly, so not created")
+        try:
+            created = client.create(kind, body)
+        except ClientError as exc:
+            return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="CreateFailed")
+        state.record(resource.kind, resource.metadata.name, aqua_name=name,
+                     aqua_id=_aqua_id(created))
+        return Result(**common, outcome=Outcome.CREATED, plan=plan)
 
-    plan = three_way_diff(
-        desired=desired,
-        actual=actual,
-        last_applied=recorded.lastAppliedFields if recorded else None,
-        release_policy=options.release_policy,
-    )
+    # ---- exists: whose is it? ----------------------------------------------
+    adopting = False
+    if kind.collection:
+        found = marker.owner(actual.get("description"))
+        if found and found != options.instance:
+            return Result(
+                **common, outcome=Outcome.BLOCKED, reason="OwnedByOtherInstance",
+                message=(f"managed by another instance ({marker.PREFIX}{found}); this "
+                         f"instance is {options.instance!r}. Two instances must not "
+                         "manage the same object -- remove it from one of them."),
+            )
+        adopting = found is None
+
+    plan = three_way_diff(desired=desired, actual=actual)
+
+    # ---- predefined objects: some fields cannot change -----------------------
+    not_allowed: list[str] = []
+    if is_predefined(kind, actual, name):
+        kept = []
+        for change in plan.changes:
+            if _touches(change.path, kind.predefined_immutable):
+                not_allowed.append(
+                    f"{change.path}: {change.before!r} -> {change.after!r} "
+                    "(cannot change on a predefined policy; not sent)"
+                )
+            else:
+                kept.append(change)
+        plan = Plan(changes=kept, release_policy=plan.release_policy)
 
     if plan.is_empty():
-        # Still record: adoption of a previously unmanaged object is exactly
-        # this case, and it is what makes the next run's diff three-way.
-        if not options.dry_run:
-            state.record(
-                resource.kind, resource.metadata.name, lookup_name, owned,
-                aqua_id=_aqua_id(actual),
-            )
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.IN_SYNC,
-            aqua_name=lookup_name, plan=plan,
-        )
+        return Result(**common, outcome=Outcome.IN_SYNC, plan=plan, not_allowed=not_allowed)
 
+    action = "adopt" if adopting else "update"
     if options.dry_run:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.PLANNED,
-            aqua_name=lookup_name, plan=plan, reason="UpdateRequired",
-        )
-
-    if resource.spec.enforcement is Enforcement.REPORT_ONLY:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name,
-            outcome=Outcome.DRIFT_DETECTED, aqua_name=lookup_name, plan=plan,
-            reason="ReportOnly",
-            message="drift detected; spec.enforcement is ReportOnly so nothing was changed",
-        )
+        return Result(**common, outcome=Outcome.PLANNED, action=action, plan=plan,
+                      not_allowed=not_allowed,
+                      reason="AdoptRequired" if adopting else "UpdateRequired")
+    if report_only:
+        return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, not_allowed=not_allowed,
+                      reason="ReportOnly",
+                      message="drift detected; spec.enforcement is ReportOnly so nothing was changed")
 
     try:
-        client.update(kind, lookup_name, plan.apply_to(actual))
+        client.update(kind, name, plan.apply_to(actual))
     except ClientError as exc:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.FAILED,
-            aqua_name=lookup_name, plan=plan, message=str(exc), reason="UpdateFailed",
-        )
+        return Result(**common, outcome=Outcome.FAILED, plan=plan, message=str(exc),
+                      reason="UpdateFailed")
 
-    _record(state, resource, lookup_name, owned, actual)
-    return Result(
-        kind=resource.kind, name=resource.metadata.name, outcome=Outcome.UPDATED,
-        aqua_name=lookup_name, plan=plan,
-    )
+    state.record(resource.kind, resource.metadata.name, aqua_name=name, aqua_id=_aqua_id(actual))
+    return Result(**common, outcome=Outcome.ADOPTED if adopting else Outcome.UPDATED,
+                  plan=plan, not_allowed=not_allowed)
 
 
-def _aqua_id(actual: dict) -> int | None:
-    value = actual.get("id")
+def _aqua_id(obj: dict | None) -> int | None:
+    value = (obj or {}).get("id")
     return value if isinstance(value, int) else None
 
 
-def _record(state, resource, aqua_name, owned, actual) -> None:
-    state.record(
-        resource.kind, resource.metadata.name, aqua_name, owned,
-        aqua_id=_aqua_id(actual or {}),
-    )
+# --------------------------------------------------------------------------- #
+# Orphans
+# --------------------------------------------------------------------------- #
 
+def _orphans(resources: list[Resource], client: AquaClient, options: Options) -> list[Result]:
+    """Objects carrying this instance's marker that no file describes.
 
-def _handle_absent(
-    resource, kind, state, client, options, recorded, desired_aqua_name, desired, owned
-) -> Result:
-    """Nothing on the server under the name we looked for."""
-
-    # We have state saying we manage this, but Aqua does not have it. Something
-    # happened outside the tool. Recreating silently could resurrect a policy
-    # somebody deliberately deleted, so stop and say so.
-    if recorded is not None and recorded.aquaName and not options.allow_recreate_missing:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.BLOCKED,
-            aqua_name=recorded.aquaName, reason="ManagedObjectMissing",
-            message=(
-                f"state says we manage {recorded.aquaName!r} but Aqua has no such "
-                f"{resource.kind}. It may have been deleted in the console. "
-                "Re-create it with --allow-recreate-missing, or remove the entry "
-                "from state if it is gone for good."
-            ),
-        )
-
-    body = dict(desired)
-    body["name"] = desired_aqua_name
-
-    if options.dry_run:
-        plan = three_way_diff(desired=body, actual={}, last_applied=None)
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.PLANNED,
-            aqua_name=desired_aqua_name, plan=plan, reason="CreateRequired",
-        )
-
-    try:
-        created = client.create(kind, body)
-    except ClientError as exc:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.FAILED,
-            aqua_name=desired_aqua_name, message=str(exc), reason="CreateFailed",
-        )
-
-    _record(state, resource, desired_aqua_name, owned, created or {})
-    return Result(
-        kind=resource.kind, name=resource.metadata.name, outcome=Outcome.CREATED,
-        aqua_name=desired_aqua_name,
-    )
-
-
-def _handle_rename(
-    resource, kind, state, client, options, rename: RenameDetected, actual,
-    desired, owned,
-) -> Result:
-    """The file wants a different Aqua name than the one we recorded.
-
-    Aqua has no rename primitive -- the name is the key in the URL -- so this is
-    create-new then delete-old, in that order. Never delete-first: a failure
-    between the two steps must leave the policy in place, not absent.
+    Deleted by default -- removing a file from Git removes the object, as with
+    Argo CD pruning. Never deleted: another instance's objects, unmarked
+    objects, and anything Aqua ships.
     """
-    enforcing = bool(getattr(resource.spec, "enforce", False))
+    results: list[Result] = []
 
-    if enforcing and not options.allow_rename:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.BLOCKED,
-            aqua_name=rename.from_name, rename=rename, reason="RenameInEnforceMode",
-            message=(
-                f"{rename.render()}. Aqua cannot rename in place, so this is a "
-                "create followed by a delete, and for a moment both policies "
-                "exist and both apply. In an enforce-mode scope that is how "
-                "workloads get blocked unexpectedly. Re-run with --allow-rename "
-                "if that is acceptable."
-            ),
-        )
+    for kind in options.kinds:
+        if not kind.collection:
+            continue
 
-    if options.dry_run:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.PLANNED,
-            aqua_name=rename.to_name, rename=rename, reason="RenameRequired",
-            message=f"{rename.render()} (create then delete; no in-place rename exists)",
-        )
+        wanted = {r.aqua_name for r in resources if r.kind == kind.kind}
+        try:
+            objects = client.list(kind)
+        except ClientError as exc:
+            results.append(Result(kind=kind.kind, name="*", outcome=Outcome.FAILED,
+                                  reason="OrphanScanFailed",
+                                  message=f"could not list {kind.kind} objects: {exc}"))
+            continue
 
-    body = dict(desired)
-    body["name"] = rename.to_name
+        for obj in objects:
+            name = obj.get(kind.name_field)
+            if not name or name in wanted:
+                continue
+            if marker.owner(obj.get("description")) != options.instance:
+                continue
 
-    try:
-        created = client.create(kind, body)
-    except ClientError as exc:
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.FAILED,
-            aqua_name=rename.from_name, rename=rename, reason="RenameCreateFailed",
-            message=(
-                f"could not create {rename.to_name!r}: {exc}. The original "
-                f"{rename.from_name!r} has been left untouched."
-            ),
-        )
+            common = dict(kind=kind.kind, name=name, aqua_name=name)
 
-    try:
-        if actual is not None:
-            client.delete(kind, rename.from_name)
-    except ClientError as exc:
-        # The new object exists; the old one could not be removed. Record the
-        # new name so we do not create a third on the next run, and say plainly
-        # that a duplicate is live -- this is precisely the orphan-and-duplicate
-        # situation that must never pass silently.
-        _record(state, resource, rename.to_name, owned, created or {})
-        return Result(
-            kind=resource.kind, name=resource.metadata.name, outcome=Outcome.FAILED,
-            aqua_name=rename.to_name, rename=rename, reason="RenameDeleteFailed",
-            message=(
-                f"created {rename.to_name!r} but could not delete the old "
-                f"{rename.from_name!r}: {exc}. BOTH now exist in Aqua and both "
-                "apply. Remove the old one manually."
-            ),
-        )
+            if is_shipped(kind, obj):
+                results.append(Result(
+                    **common, outcome=Outcome.ORPHANED, reason="ShippedNeverDeleted",
+                    informational=True,
+                    message=("no file describes it, but it is shipped by Aqua and the "
+                             "tool never deletes those. It keeps its settings and the "
+                             "ownership marker; remove the marker in the console to "
+                             "release it."),
+                ))
+            elif options.no_delete:
+                results.append(Result(**common, outcome=Outcome.ORPHANED, reason="DeletionDisabled",
+                                      message="orphaned, not deleted (--no-delete)"))
+            elif not resources and not options.allow_empty:
+                results.append(Result(
+                    **common, outcome=Outcome.ORPHANED, reason="NoResourcesLoaded",
+                    message=("not deleted: no resources were loaded at all, which is more "
+                             "likely a wrong path or an empty mount than an instruction to "
+                             "delete everything. Pass --allow-empty if it is intended."),
+                ))
+            elif options.dry_run:
+                results.append(Result(**common, outcome=Outcome.PLANNED, action="delete",
+                                      reason="DeleteRequired",
+                                      message="no file describes it; will be deleted"))
+            else:
+                try:
+                    client.delete(kind, name)
+                except ClientError as exc:
+                    results.append(Result(**common, outcome=Outcome.FAILED, message=str(exc),
+                                          reason="DeleteFailed"))
+                    continue
+                results.append(Result(**common, outcome=Outcome.DELETED,
+                                      message="no file describes it any more"))
+    return results
 
-    _record(state, resource, rename.to_name, owned, created or {})
-    return Result(
-        kind=resource.kind, name=resource.metadata.name, outcome=Outcome.RENAMED,
-        aqua_name=rename.to_name, rename=rename,
-        message=f"{rename.from_name!r} -> {rename.to_name!r} (created, then removed the old)",
-    )
 
+# --------------------------------------------------------------------------- #
+# A whole run
+# --------------------------------------------------------------------------- #
 
 def reconcile_all(
     resources: list[Resource],
-    registry_get,
-    state: StateBackend,
     client: AquaClient,
-    options: Options | None = None,
+    options: Options,
+    state: StateBackend | None = None,
 ) -> RunSummary:
-    """Reconcile every resource, then report orphans.
+    """Reconcile every resource, then deal with orphans.
 
-    One resource failing does not stop the others: a run that abandons half the
-    tree on the first error leaves the tenant in a state nobody planned.
+    All creates and updates happen before any delete, so a Git-side rename --
+    which is a new object plus an orphan -- never leaves a moment with neither
+    policy in place. One failure does not stop the rest.
     """
-    options = options or Options()
+    marker.validate_instance(options.instance)
+    kinds = {k.kind: k for k in options.kinds}
     summary = RunSummary()
 
     for resource in resources:
-        try:
-            kind = registry_get(resource.kind)
-            summary.add(reconcile(resource, kind, state, client, options))
-        except (ClientError, StateError, KeyError) as exc:
-            summary.add(
-                Result(
-                    kind=resource.kind, name=resource.metadata.name,
-                    outcome=Outcome.FAILED, message=str(exc), reason="ReconcileFailed",
-                )
-            )
+        kind = kinds.get(resource.kind)
+        if kind is None:
+            summary.add(Result(kind=resource.kind, name=resource.metadata.name,
+                               outcome=Outcome.FAILED, reason="UnknownKind",
+                               message=f"no registered kind {resource.kind!r}"))
+            continue
+        summary.add(reconcile(resource, kind, client, options, state))
 
-    summary.results.extend(
-        _report_orphans(resources, state, client, options)
-    )
-
-    if not options.dry_run:
-        state.commit()
-
+    summary.results.extend(_orphans(resources, client, options))
     return summary
-
-
-def _report_orphans(resources, state, client, options) -> list[Result]:
-    """Managed objects whose files have gone from Git.
-
-    Default is Orphan: removing a file must not silently delete a production
-    enforcement policy. Deletion needs ``spec.deletionPolicy: Delete`` on the
-    resource *and* ``--allow-delete`` on the run -- and since the file is gone,
-    the per-resource opt-in is no longer readable, so this can only ever report.
-    """
-    present = {(r.kind, r.metadata.name) for r in resources}
-    results = []
-
-    for orphan in state.orphans(present):
-        results.append(
-            Result(
-                kind=orphan.kind, name=orphan.name, outcome=Outcome.BLOCKED,
-                aqua_name=orphan.aquaName, reason="Orphaned",
-                message=(
-                    f"{orphan.aquaName!r} is managed in state but no file "
-                    "describes it any more. It has been left in place. Delete it "
-                    "in Aqua by hand if that is what you want, then remove its "
-                    "state entry."
-                ),
-            )
-        )
-    return results

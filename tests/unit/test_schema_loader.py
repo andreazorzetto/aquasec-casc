@@ -9,7 +9,6 @@ import pytest
 
 from aqua_casc.schema import (
     ALLOW_UNKNOWN_ANNOTATION,
-    DeletionPolicy,
     Enforcement,
     RuntimeType,
     SchemaError,
@@ -56,7 +55,6 @@ def test_defaults_are_the_safe_ones(tmp_path):
 
     # Removing a file must never silently delete a production policy, and a
     # policy must not start enforcing just because it was created.
-    assert policy.spec.deletionPolicy is DeletionPolicy.ORPHAN
     assert policy.spec.enforcement is Enforcement.RECONCILE
     assert policy.spec.runtimeType is RuntimeType.CONTAINER
 
@@ -295,14 +293,31 @@ def test_duplicate_kind_and_name_is_an_error(tmp_path):
     assert "duplicate" in str(exc.value)
 
 
-def test_state_directory_is_not_treated_as_config(tmp_path):
+def test_the_tools_config_file_is_not_treated_as_a_resource(tmp_path):
     write(tmp_path, "p.yaml", MINIMAL)
-    state = tmp_path / ".aqua-casc"
-    state.mkdir()
-    (state / "state.yaml").write_text("this: is not a resource\n", encoding="utf-8")
+    (tmp_path / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
 
     result = load_dir(tmp_path)
     assert len(result.resources) == 1
+
+
+def test_a_config_file_name_in_a_subdirectory_is_still_loaded_as_a_resource(tmp_path):
+    """Only the root-level aqua-casc.yaml is settings; elsewhere it is just a file."""
+    write(tmp_path, "p.yaml", MINIMAL)
+    sub = tmp_path / "team"
+    sub.mkdir()
+    (sub / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+
+    with pytest.raises(SchemaErrorGroup):
+        load_dir(tmp_path)
+
+
+def test_deletion_policy_is_no_longer_part_of_the_schema(tmp_path):
+    """Deletion is decided per run (--no-delete), not per resource."""
+    path = write(tmp_path, "p.yaml", MINIMAL + "      deletionPolicy: Orphan\n")
+    with pytest.raises(SchemaError) as exc:
+        load_file(path)
+    assert "deletionPolicy" in exc.value.render()
 
 
 def test_shipped_examples_are_valid():

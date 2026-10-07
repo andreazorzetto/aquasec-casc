@@ -26,4 +26,3 @@ spec:
       exceptions:
         - "redis-*"
   enforcement: Reconcile
-  deletionPolicy: Orphan

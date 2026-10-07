@@ -1,56 +1,53 @@
-"""The reconciler end to end, against a fake Aqua.
+"""The stateless reconciler, end to end against a fake Aqua.
 
-The fake exists so every rule below is exercised without a tenant -- including
-the failure paths (a create that works followed by a delete that does not) which
-are impossible to arrange reliably against a live system and are exactly where
-an orphan-and-duplicate incident would come from.
+Covers the decisions the design rests on: ownership by marker, adoption,
+recreation of console deletions, GitOps-style deletion of orphans with its
+guardrails, the boundary between instances, and built-in policies.
 """
 
 from __future__ import annotations
 
-import textwrap
+from dataclasses import replace
 
 import pytest
-import yaml
 
-from aqua_casc.reconcile import (
-    ClientError,
-    FileStateBackend,
-    Options,
-    Outcome,
-    ReleasePolicy,
-    reconcile,
-    reconcile_all,
-)
+from aqua_casc.reconcile import ClientError, Options, Outcome, reconcile, reconcile_all
+from aqua_casc.reconcile import marker
 from aqua_casc.schema import load_document, registry
+
+KIND = registry.get("RuntimePolicy")
+ME = "platform"
+MARK = marker.marker(ME)
 
 
 class FakeAqua:
     """An in-memory Aqua, keyed by name like the real one."""
 
     def __init__(self, objects: dict[str, dict] | None = None) -> None:
-        self.objects = dict(objects or {})
+        self.objects = {k: dict(v) for k, v in (objects or {}).items()}
         self.calls: list[tuple[str, str]] = []
         self.fail_on: dict[str, ClientError] = {}
 
-    def _maybe_fail(self, op: str) -> None:
+    def _maybe_fail(self, op):
         if op in self.fail_on:
             raise self.fail_on[op]
+
+    def list(self, kind):
+        self.calls.append(("list", "*"))
+        self._maybe_fail("list")
+        return [dict(o) for o in self.objects.values()]
 
     def get(self, kind, name):
         self.calls.append(("get", name))
         self._maybe_fail("get")
-        obj = self.objects.get(name)
-        return dict(obj) if obj is not None else None
+        o = self.objects.get(name)
+        return dict(o) if o is not None else None
 
     def create(self, kind, body):
-        self.calls.append(("create", body.get("name", "?")))
+        self.calls.append(("create", body["name"]))
         self._maybe_fail("create")
-        name = body["name"]
-        # A real Aqua fills in defaults on create; mimic that so the test is
-        # not accidentally easier than reality.
-        stored = {"author": "System", "digest": "generated", "id": 4471, **body}
-        self.objects[name] = stored
+        stored = {"author": "System", "is_ootb_policy": False, "id": 4471, **body}
+        self.objects[body["name"]] = stored
         return dict(stored)
 
     def update(self, kind, name, body):
@@ -64,441 +61,333 @@ class FakeAqua:
         self._maybe_fail("delete")
         self.objects.pop(name, None)
 
-
-def policy(body: str):
-    return load_document(yaml.safe_load(textwrap.dedent(body).lstrip()), "test.yaml")[0]
-
-
-DEVTEST = """
-    apiVersion: config.aquasec.com/v1alpha1
-    kind: RuntimePolicy
-    metadata:
-      name: devtest-baseline
-    spec:
-      enforce: false
-      applicationScopes: ["DevTest"]
-      controls:
-        blockNonCompliantImages: false
-"""
+    def writes(self):
+        return [c for c in self.calls if c[0] in ("create", "update", "delete")]
 
 
-@pytest.fixture
-def kind():
-    return registry.get("RuntimePolicy")
+def policy(name="devtest-baseline", **spec):
+    spec = {"applicationScopes": ["DevTest"], "enforce": False,
+            "controls": {"blockNonCompliantImages": False}, **spec}
+    doc = {"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
+           "metadata": {"name": name}, "spec": spec}
+    return load_document(doc, "test.yaml")[0]
 
 
-@pytest.fixture
-def state(tmp_path):
-    return FileStateBackend(tmp_path).load()
-
-
-def server_policy(**overrides) -> dict:
-    """A realistic server object: far more fields than we manage."""
-    base = {
-        "name": "devtest-baseline",
-        "id": 4471,
-        "enforce": False,
-        "enabled": True,
-        "application_scopes": ["DevTest"],
-        "block_disallowed_images": False,
-        "author": "someone@example.com",
-        "digest": "abc123",
-        "lastupdate": 1725000000,
-        "is_ootb_policy": False,
-        "malware_scan_options": {"enabled": True},
-    }
-    base.update(overrides)
+def server(name="devtest-baseline", description=f"Dev/test\n\n{MARK}", **extra):
+    base = {"name": name, "description": description, "enforce": False, "enabled": True,
+            "application_scopes": ["DevTest"], "block_disallowed_images": False,
+            "author": "someone@example.com", "is_ootb_policy": False,
+            "malware_scan_options": {"enabled": True}}
+    base.update(extra)
     return base
 
 
-# --------------------------------------------------------------------------- #
-# Create
-# --------------------------------------------------------------------------- #
-
-
-def test_absent_object_is_created(kind, state):
-    client = FakeAqua()
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.CREATED
-    assert client.objects["devtest-baseline"]["block_disallowed_images"] is False
-    assert state.get("RuntimePolicy", "devtest-baseline").aquaName == "devtest-baseline"
-
-
-def test_create_is_only_planned_in_dry_run(kind, state):
-    client = FakeAqua()
-    result = reconcile(policy(DEVTEST), kind, state, client, Options(dry_run=True))
-
-    assert result.outcome is Outcome.PLANNED
-    assert result.reason == "CreateRequired"
-    assert client.objects == {}
-    assert state.get("RuntimePolicy", "devtest-baseline") is None
-
-
-def test_create_records_the_numeric_id_for_traceability(kind, state):
-    client = FakeAqua()
-    reconcile(policy(DEVTEST), kind, state, client)
-    assert state.get("RuntimePolicy", "devtest-baseline").aquaId == 4471
-
-
-def test_a_failed_create_is_reported_not_raised(kind, state):
-    client = FakeAqua()
-    client.fail_on["create"] = ClientError("HTTP 403 forbidden", status=403)
-
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.FAILED
-    assert "403" in result.message
-    assert state.get("RuntimePolicy", "devtest-baseline") is None
+def opts(**kw):
+    return Options(instance=ME, **kw)
 
 
 # --------------------------------------------------------------------------- #
-# Adoption -- the property the whole tool is judged on
+# Create, and recreate
 # --------------------------------------------------------------------------- #
 
-
-def test_adopting_an_existing_policy_changes_nothing(kind, state):
-    """export -> commit -> apply must be a no-op. This is the acceptance test."""
-    client = FakeAqua({"devtest-baseline": server_policy()})
-
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.IN_SYNC
-    assert ("update", "devtest-baseline") not in client.calls
+def test_a_missing_object_is_created_with_the_marker():
+    aqua = FakeAqua()
+    r = reconcile(policy(description="Dev/test"), KIND, aqua, opts())
+    assert r.outcome is Outcome.CREATED
+    assert aqua.objects["devtest-baseline"]["description"] == f"Dev/test\n\n{MARK}"
 
 
-def test_adoption_records_state_so_the_next_diff_is_three_way(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    recorded = state.get("RuntimePolicy", "devtest-baseline")
-    assert recorded is not None
-    assert "block_disallowed_images" in recorded.lastAppliedFields
-    assert "author" not in recorded.lastAppliedFields  # never ours
+def test_created_without_a_description_gets_just_the_marker():
+    aqua = FakeAqua()
+    reconcile(policy(), KIND, aqua, opts())
+    assert aqua.objects["devtest-baseline"]["description"] == MARK
 
 
-def test_applying_twice_is_idempotent(kind, state):
-    client = FakeAqua()
+def test_an_object_deleted_in_the_console_is_recreated():
+    """No 'stop and ask': putting it back is the guardrail."""
+    aqua = FakeAqua({"devtest-baseline": server()})
+    reconcile(policy(), KIND, aqua, opts())
+    del aqua.objects["devtest-baseline"]
 
-    first = reconcile(policy(DEVTEST), kind, state, client)
-    second = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert first.outcome is Outcome.CREATED
-    assert second.outcome is Outcome.IN_SYNC
-
-
-# --------------------------------------------------------------------------- #
-# Update and drift
-# --------------------------------------------------------------------------- #
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.CREATED
+    assert "devtest-baseline" in aqua.objects
 
 
-def test_console_drift_is_reverted_without_touching_anything_else(kind, state):
-    """Demo step 6: someone flips it back in the console."""
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)          # adopt
-
-    client.objects["devtest-baseline"]["block_disallowed_images"] = True
-    result = reconcile(policy(DEVTEST), kind, state, client)  # correct
-
-    assert result.outcome is Outcome.UPDATED
-    assert len(result.plan.changes) == 1
-    assert result.plan.changes[0].path == "block_disallowed_images"
-
-    stored = client.objects["devtest-baseline"]
-    assert stored["block_disallowed_images"] is False
-    assert stored["author"] == "someone@example.com"        # untouched
-    assert stored["malware_scan_options"] == {"enabled": True}
-
-
-def test_a_console_edit_to_a_field_we_do_not_own_is_left_alone(kind, state):
-    """The point of the three-way diff."""
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    client.objects["devtest-baseline"]["block_fileless_exec"] = True
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.IN_SYNC
-    assert client.objects["devtest-baseline"]["block_fileless_exec"] is True
-
-
-def test_report_only_detects_drift_and_changes_nothing(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    report_only = policy(DEVTEST + "      enforcement: ReportOnly\n")
-    client.objects["devtest-baseline"]["block_disallowed_images"] = True
-    result = reconcile(report_only, kind, state, client)
-
-    assert result.outcome is Outcome.DRIFT_DETECTED
-    assert client.objects["devtest-baseline"]["block_disallowed_images"] is True
-    assert ("update", "devtest-baseline") not in client.calls
-
-
-def test_dry_run_never_writes(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy(block_disallowed_images=True)})
-    result = reconcile(policy(DEVTEST), kind, state, client, Options(dry_run=True))
-
-    assert result.outcome is Outcome.PLANNED
-    assert client.objects["devtest-baseline"]["block_disallowed_images"] is True
-    assert not any(c[0] in ("update", "create", "delete") for c in client.calls)
-
-
-def test_a_failed_update_leaves_state_untouched(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-    before = state.get("RuntimePolicy", "devtest-baseline").observedGeneration
-
-    client.objects["devtest-baseline"]["block_disallowed_images"] = True
-    client.fail_on["update"] = ClientError("HTTP 500")
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.FAILED
-    assert state.get("RuntimePolicy", "devtest-baseline").observedGeneration == before
+def test_create_is_only_planned_in_a_dry_run():
+    aqua = FakeAqua()
+    r = reconcile(policy(), KIND, aqua, opts(dry_run=True))
+    assert r.outcome is Outcome.PLANNED and r.action == "create"
+    assert aqua.writes() == []
 
 
 # --------------------------------------------------------------------------- #
-# Rename
+# Adoption
 # --------------------------------------------------------------------------- #
 
+def test_an_unmarked_object_is_adopted_and_only_the_marker_changes():
+    """The first apply after an export: ownership is recorded, nothing else moves."""
+    aqua = FakeAqua({"devtest-baseline": server(description="Set in the console")})
+    r = reconcile(policy(), KIND, aqua, opts())
 
-RENAMED_AUDIT = """
-    apiVersion: config.aquasec.com/v1alpha1
-    kind: RuntimePolicy
-    metadata:
-      name: devtest-baseline
-    spec:
-      applicationScopes: ["DevTest"]
-      aquaName: devtest-baseline-v2
-      enforce: false
-      controls:
-        blockNonCompliantImages: false
-"""
-
-RENAMED_ENFORCING = RENAMED_AUDIT.replace("enforce: false", "enforce: true")
+    assert r.outcome is Outcome.ADOPTED
+    assert [c.path for c in r.plan.changes] == ["description"]
+    stored = aqua.objects["devtest-baseline"]
+    assert stored["description"] == f"Set in the console\n\n{MARK}"   # console text kept
+    assert stored["author"] == "someone@example.com"                  # untouched
 
 
-def test_rename_in_audit_mode_creates_then_deletes(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    result = reconcile(policy(RENAMED_AUDIT), kind, state, client)
-
-    assert result.outcome is Outcome.RENAMED
-    assert "devtest-baseline-v2" in client.objects
-    assert "devtest-baseline" not in client.objects
-
-    ops = [c for c in client.calls if c[0] in ("create", "delete")]
-    assert ops == [("create", "devtest-baseline-v2"), ("delete", "devtest-baseline")], (
-        "must create before deleting, so a failure leaves the policy in place"
-    )
-    assert state.get("RuntimePolicy", "devtest-baseline").aquaName == "devtest-baseline-v2"
+def test_adoption_is_planned_as_such_in_a_dry_run():
+    aqua = FakeAqua({"devtest-baseline": server(description="x")})
+    r = reconcile(policy(), KIND, aqua, opts(dry_run=True))
+    assert r.outcome is Outcome.PLANNED and r.action == "adopt"
 
 
-def test_rename_in_enforce_mode_is_blocked_by_default(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    result = reconcile(policy(RENAMED_ENFORCING), kind, state, client)
-
-    assert result.outcome is Outcome.BLOCKED
-    assert result.reason == "RenameInEnforceMode"
-    assert "--allow-rename" in result.message
-    assert client.objects.keys() == {"devtest-baseline"}
+def test_after_adoption_every_apply_is_a_no_op():
+    aqua = FakeAqua({"devtest-baseline": server(description="x")})
+    reconcile(policy(), KIND, aqua, opts())
+    before = len(aqua.writes())
+    assert reconcile(policy(), KIND, aqua, opts()).outcome is Outcome.IN_SYNC
+    assert len(aqua.writes()) == before
 
 
-def test_rename_in_enforce_mode_proceeds_with_the_flag(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    result = reconcile(
-        policy(RENAMED_ENFORCING), kind, state, client, Options(allow_rename=True)
-    )
-
-    assert result.outcome is Outcome.RENAMED
-    assert "devtest-baseline-v2" in client.objects
+def test_a_marker_removed_in_the_console_is_restored():
+    aqua = FakeAqua({"devtest-baseline": server()})
+    aqua.objects["devtest-baseline"]["description"] = "Dev/test"
+    reconcile(policy(), KIND, aqua, opts())
+    assert marker.owner(aqua.objects["devtest-baseline"]["description"]) == ME
 
 
-def test_a_rename_whose_delete_fails_reports_the_duplicate_loudly(kind, state):
-    """The orphan-and-duplicate case. It must never pass quietly."""
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-    client.fail_on["delete"] = ClientError("HTTP 409 conflict")
-
-    result = reconcile(policy(RENAMED_AUDIT), kind, state, client)
-
-    assert result.outcome is Outcome.FAILED
-    assert "BOTH" in result.message
-    assert "devtest-baseline" in client.objects
-    assert "devtest-baseline-v2" in client.objects
-    # State points at the new one, so the next run does not create a third.
-    assert state.get("RuntimePolicy", "devtest-baseline").aquaName == "devtest-baseline-v2"
-
-
-def test_a_rename_whose_create_fails_leaves_the_original_alone(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-    client.fail_on["create"] = ClientError("HTTP 400 bad request")
-
-    result = reconcile(policy(RENAMED_AUDIT), kind, state, client)
-
-    assert result.outcome is Outcome.FAILED
-    assert "left untouched" in result.message
-    assert client.objects.keys() == {"devtest-baseline"}
-    assert state.get("RuntimePolicy", "devtest-baseline").aquaName == "devtest-baseline"
-
-
-def test_rename_is_only_described_in_dry_run(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    result = reconcile(policy(RENAMED_AUDIT), kind, state, client, Options(dry_run=True))
-
-    assert result.outcome is Outcome.PLANNED
-    assert result.reason == "RenameRequired"
-    assert client.objects.keys() == {"devtest-baseline"}
-
-
-def test_an_unmanaged_object_with_a_new_name_is_a_create_not_a_rename(kind, state):
-    """No state entry means no ownership claim."""
-    client = FakeAqua()
-    result = reconcile(policy(RENAMED_AUDIT), kind, state, client)
-
-    assert result.outcome is Outcome.CREATED
-    assert "devtest-baseline-v2" in client.objects
+def test_the_yaml_description_wins_when_it_is_set():
+    aqua = FakeAqua({"devtest-baseline": server(description=f"old text\n\n{MARK}")})
+    reconcile(policy(description="new text"), KIND, aqua, opts())
+    assert aqua.objects["devtest-baseline"]["description"] == f"new text\n\n{MARK}"
 
 
 # --------------------------------------------------------------------------- #
-# Managed object vanished
+# Drift
 # --------------------------------------------------------------------------- #
 
-
-def test_a_managed_object_missing_from_aqua_blocks_rather_than_recreating(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-
-    del client.objects["devtest-baseline"]
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.BLOCKED
-    assert result.reason == "ManagedObjectMissing"
-    assert "--allow-recreate-missing" in result.message
-    assert client.objects == {}
+def test_drift_on_a_field_we_own_is_reverted_and_nothing_else_moves():
+    aqua = FakeAqua({"devtest-baseline": server(block_disallowed_images=True)})
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.UPDATED
+    assert [c.path for c in r.plan.changes] == ["block_disallowed_images"]
+    assert aqua.objects["devtest-baseline"]["malware_scan_options"] == {"enabled": True}
 
 
-def test_it_recreates_with_the_explicit_flag(kind, state):
-    client = FakeAqua({"devtest-baseline": server_policy()})
-    reconcile(policy(DEVTEST), kind, state, client)
-    del client.objects["devtest-baseline"]
+def test_a_console_edit_to_a_field_we_do_not_own_is_left_alone():
+    aqua = FakeAqua({"devtest-baseline": server(block_fileless_exec=True)})
+    assert reconcile(policy(), KIND, aqua, opts()).outcome is Outcome.IN_SYNC
+    assert aqua.objects["devtest-baseline"]["block_fileless_exec"] is True
 
-    result = reconcile(
-        policy(DEVTEST), kind, state, client, Options(allow_recreate_missing=True)
-    )
 
-    assert result.outcome is Outcome.CREATED
-    assert "devtest-baseline" in client.objects
+def test_report_only_detects_and_changes_nothing():
+    aqua = FakeAqua({"devtest-baseline": server(block_disallowed_images=True)})
+    r = reconcile(policy(enforcement="ReportOnly"), KIND, aqua, opts())
+    assert r.outcome is Outcome.DRIFT_DETECTED
+    assert aqua.writes() == []
+
+
+def test_report_only_does_not_create_a_missing_object():
+    aqua = FakeAqua()
+    r = reconcile(policy(enforcement="ReportOnly"), KIND, aqua, opts())
+    assert r.outcome is Outcome.DRIFT_DETECTED and r.reason == "Missing"
+    assert aqua.writes() == []
+
+
+def test_a_failed_update_is_reported_not_raised():
+    aqua = FakeAqua({"devtest-baseline": server(block_disallowed_images=True)})
+    aqua.fail_on["update"] = ClientError("HTTP 500", status=500)
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.FAILED and r.reason == "UpdateFailed"
 
 
 # --------------------------------------------------------------------------- #
-# Whole-run behaviour
+# Instances
 # --------------------------------------------------------------------------- #
 
-
-def test_exit_codes_follow_terraform_convention(kind, state, tmp_path):
-    client = FakeAqua()
-
-    planned = reconcile_all(
-        [policy(DEVTEST)], registry.get, state, client, Options(dry_run=True)
-    )
-    assert planned.exit_code() == 2  # changes present
-
-    applied = reconcile_all([policy(DEVTEST)], registry.get, state, client)
-    assert applied.exit_code() == 0  # applied, nothing outstanding
-
-    again = reconcile_all([policy(DEVTEST)], registry.get, state, client)
-    assert again.exit_code() == 0  # in sync
+def test_an_object_owned_by_another_instance_is_refused():
+    other = server(description="theirs\n\nmanaged-by: aqua-casc/team-b", block_disallowed_images=True)
+    aqua = FakeAqua({"devtest-baseline": other})
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.BLOCKED and r.reason == "OwnedByOtherInstance"
+    assert "team-b" in r.message
+    assert aqua.writes() == []
 
 
-def test_a_failure_gives_exit_code_one_not_two(kind, state):
-    client = FakeAqua()
-    client.fail_on["create"] = ClientError("HTTP 500")
-
-    summary = reconcile_all([policy(DEVTEST)], registry.get, state, client)
-    assert summary.exit_code() == 1
-
-
-def test_one_failure_does_not_abandon_the_rest(kind, state):
-    other = DEVTEST.replace("devtest-baseline", "other-policy")
-    client = FakeAqua()
-    client.fail_on["get"] = ClientError("boom")
-
-    summary = reconcile_all(
-        [policy(DEVTEST), policy(other)], registry.get, state, client
-    )
-    assert len(summary.results) == 2
-    assert all(r.failed for r in summary.results)
+def test_another_instances_orphan_is_never_touched():
+    aqua = FakeAqua({"theirs": server(name="theirs", description="managed-by: aqua-casc/team-b")})
+    summary = reconcile_all([policy()], aqua, opts())
+    assert "theirs" in aqua.objects
+    assert not [r for r in summary.results if r.name == "theirs"]
 
 
-def test_orphans_are_reported_and_never_deleted(kind, state):
-    client = FakeAqua()
-    reconcile_all([policy(DEVTEST)], registry.get, state, client)
-
-    # The file disappears from Git.
-    summary = reconcile_all([], registry.get, state, client)
-
-    orphans = summary.of(Outcome.BLOCKED)
-    assert len(orphans) == 1
-    assert orphans[0].reason == "Orphaned"
-    assert "devtest-baseline" in client.objects  # still there
-    assert summary.exit_code() == 2
+def test_unmarked_console_objects_are_never_orphans():
+    aqua = FakeAqua({"console-made": server(name="console-made", description="hand made")})
+    reconcile_all([policy()], aqua, opts())
+    assert "console-made" in aqua.objects
 
 
-def test_state_is_committed_on_apply_and_not_on_dry_run(kind, state, tmp_path):
-    client = FakeAqua()
+# --------------------------------------------------------------------------- #
+# Orphans and deletion
+# --------------------------------------------------------------------------- #
 
-    reconcile_all([policy(DEVTEST)], registry.get, state, client, Options(dry_run=True))
-    assert not state.path.exists()
-
-    reconcile_all([policy(DEVTEST)], registry.get, state, client)
-    assert state.path.exists()
-
-
-def test_summary_line_always_shows_the_core_counts(kind, state):
-    client = FakeAqua()
-    summary = reconcile_all([policy(DEVTEST)], registry.get, state, client)
-
-    line = summary.summary_line()
-    assert "1 created" in line
-    assert "0 unchanged" in line
-    assert "0 deleted" in line
+def test_an_orphan_is_deleted_by_default():
+    aqua = FakeAqua({"devtest-baseline": server(), "removed": server(name="removed")})
+    summary = reconcile_all([policy()], aqua, opts())
+    assert "removed" not in aqua.objects
+    assert summary.of(Outcome.DELETED)[0].name == "removed"
 
 
-def test_release_policy_defaults_to_retain(kind, state):
-    """Removing a control from YAML must not silently switch it off in Aqua."""
-    with_control = DEVTEST + "        blockFilelessExec: true\n"
-    client = FakeAqua()
-
-    reconcile(policy(with_control), kind, state, client)
-    assert client.objects["devtest-baseline"]["block_fileless_exec"] is True
-
-    result = reconcile(policy(DEVTEST), kind, state, client)
-
-    assert result.outcome is Outcome.IN_SYNC
-    assert client.objects["devtest-baseline"]["block_fileless_exec"] is True
-    assert "block_fileless_exec" not in state.get(
-        "RuntimePolicy", "devtest-baseline"
-    ).lastAppliedFields
+def test_diff_lists_pending_deletions_and_exits_2():
+    aqua = FakeAqua({"devtest-baseline": server(), "removed": server(name="removed")})
+    summary = reconcile_all([policy()], aqua, opts(dry_run=True))
+    planned = [r for r in summary.results if r.action == "delete"]
+    assert [r.name for r in planned] == ["removed"]
+    assert summary.exit_code(detailed=True) == 2
+    assert "removed" in aqua.objects
 
 
-def test_reset_release_policy_removes_the_field_when_asked(kind, state):
-    with_control = DEVTEST + "        blockFilelessExec: true\n"
-    client = FakeAqua()
-    reconcile(policy(with_control), kind, state, client)
+def test_no_delete_holds_orphans_back():
+    aqua = FakeAqua({"devtest-baseline": server(), "removed": server(name="removed")})
+    summary = reconcile_all([policy()], aqua, opts(no_delete=True))
+    orphan = summary.of(Outcome.ORPHANED)[0]
+    assert orphan.reason == "DeletionDisabled" and "--no-delete" in orphan.message
+    assert "removed" in aqua.objects
+    assert summary.exit_code(detailed=False) == 0     # a routine apply passes
+    assert summary.exit_code(detailed=True) == 2      # --detailed-exitcode notices
 
-    result = reconcile(
-        policy(DEVTEST), kind, state, client,
-        Options(release_policy=ReleasePolicy.RESET),
-    )
 
-    assert result.outcome is Outcome.UPDATED
-    assert "block_fileless_exec" not in client.objects["devtest-baseline"]
+def test_a_git_rename_creates_the_new_object_before_deleting_the_old():
+    """Aqua cannot rename: a rename is a new object plus an orphan, never a gap."""
+    aqua = FakeAqua({"old-name": server(name="old-name")})
+    summary = reconcile_all([policy(name="new-name")], aqua, opts())
+    writes = aqua.writes()
+    assert writes.index(("create", "new-name")) < writes.index(("delete", "old-name"))
+    assert set(aqua.objects) == {"new-name"}
+    assert summary.exit_code(detailed=True) == 0
+
+
+def test_nothing_is_deleted_when_no_resources_were_loaded():
+    """An empty directory is more likely a mistake than 'delete everything'."""
+    aqua = FakeAqua({"a": server(name="a"), "b": server(name="b")})
+    summary = reconcile_all([], aqua, opts())
+    assert set(aqua.objects) == {"a", "b"}
+    assert {r.reason for r in summary.results} == {"NoResourcesLoaded"}
+    assert summary.exit_code(detailed=True) == 2
+
+
+def test_allow_empty_permits_deleting_everything():
+    aqua = FakeAqua({"a": server(name="a")})
+    reconcile_all([], aqua, opts(allow_empty=True))
+    assert aqua.objects == {}
+
+
+def test_a_failed_orphan_scan_deletes_nothing_and_fails_the_run():
+    aqua = FakeAqua({"removed": server(name="removed")})
+    aqua.fail_on["list"] = ClientError("HTTP 500")
+    summary = reconcile_all([policy()], aqua, opts())
+    assert "removed" in aqua.objects
+    assert summary.exit_code(detailed=False) == 1
+
+
+def test_one_failure_does_not_stop_the_rest():
+    aqua = FakeAqua()
+    aqua.fail_on["create"] = ClientError("boom")
+    summary = reconcile_all([policy(name="a"), policy(name="b")], aqua, opts())
+    assert len([r for r in summary.results if r.failed]) == 2
+
+
+def test_an_invalid_instance_name_is_rejected_before_anything_happens():
+    aqua = FakeAqua()
+    with pytest.raises(marker.InvalidInstance):
+        reconcile_all([policy()], aqua, Options(instance="Not Valid"))
+    assert aqua.calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Built-ins
+# --------------------------------------------------------------------------- #
+
+PREDEFINED = "Aqua default runtime policy"
+PREDEFINED_KIND = replace(KIND, predefined=frozenset({PREDEFINED}))
+
+
+def builtin(name=PREDEFINED, **extra):
+    fields = {"description": f"The default Aqua runtime policy\n\n{MARK}",
+              "is_ootb_policy": True, "application_scopes": ["Global"], **extra}
+    return server(name=name, **fields)
+
+
+def adopt_builtin(name=PREDEFINED, **spec):
+    return policy(name="aqua-default-runtime-policy", aquaName=name,
+                  **{"applicationScopes": ["Global"], **spec})
+
+
+def test_a_shipped_orphan_is_never_deleted_and_never_pending():
+    aqua = FakeAqua({PREDEFINED: builtin(), "devtest-baseline": server()})
+    summary = reconcile_all([policy()], aqua, Options(instance=ME, kinds=(PREDEFINED_KIND,)))
+    orphan = summary.of(Outcome.ORPHANED)[0]
+    assert orphan.reason == "ShippedNeverDeleted" and orphan.informational
+    assert PREDEFINED in aqua.objects
+    assert summary.exit_code(detailed=True) == 0
+
+
+def test_a_scope_change_on_a_predefined_policy_is_reported_not_sent():
+    aqua = FakeAqua({PREDEFINED: builtin(block_disallowed_images=True)})
+    r = reconcile(adopt_builtin(applicationScopes=["DevTest"]), PREDEFINED_KIND, aqua, opts())
+
+    assert r.outcome is Outcome.UPDATED                         # the rest still applies
+    assert [c.path for c in r.plan.changes] == ["block_disallowed_images"]
+    assert r.not_allowed and "application_scopes" in r.not_allowed[0]
+    assert r.pending                                            # Git and Aqua still differ
+    assert aqua.objects[PREDEFINED]["application_scopes"] == ["Global"]
+
+
+def test_only_a_scope_change_on_a_predefined_policy_is_in_sync_but_pending():
+    aqua = FakeAqua({PREDEFINED: builtin()})
+    r = reconcile(adopt_builtin(applicationScopes=["DevTest"]), PREDEFINED_KIND, aqua, opts())
+    assert r.outcome is Outcome.IN_SYNC and r.not_allowed and r.pending
+    assert aqua.writes() == []
+
+
+def test_a_shipped_template_not_on_the_predefined_list_can_change_scope():
+    """e.g. scoping the shipped HIPAA policy to production is legitimate."""
+    aqua = FakeAqua({"HIPAA": builtin(name="HIPAA")})
+    r = reconcile(policy(name="hipaa", aquaName="HIPAA", applicationScopes=["AccProd"]),
+                  PREDEFINED_KIND, aqua, opts())
+    assert r.outcome is Outcome.UPDATED and not r.not_allowed
+    assert aqua.objects["HIPAA"]["application_scopes"] == ["AccProd"]
+
+
+def test_a_custom_policy_reusing_a_predefined_name_is_not_predefined():
+    """Both the flag and the name are required."""
+    aqua = FakeAqua({PREDEFINED: server(name=PREDEFINED, application_scopes=["Global"])})
+    r = reconcile(adopt_builtin(applicationScopes=["DevTest"]), PREDEFINED_KIND, aqua, opts())
+    assert not r.not_allowed
+    assert aqua.objects[PREDEFINED]["application_scopes"] == ["DevTest"]
+
+
+def test_a_predefined_policy_still_carries_the_marker():
+    aqua = FakeAqua({PREDEFINED: builtin(description="The default Aqua runtime policy")})
+    r = reconcile(adopt_builtin(), PREDEFINED_KIND, aqua, opts())
+    assert r.outcome is Outcome.ADOPTED
+    assert marker.owner(aqua.objects[PREDEFINED]["description"]) == ME
+
+
+# --------------------------------------------------------------------------- #
+# Run-level
+# --------------------------------------------------------------------------- #
+
+def test_exit_codes():
+    aqua = FakeAqua()
+    assert reconcile_all([policy()], aqua, opts(dry_run=True)).exit_code(detailed=True) == 2
+    assert reconcile_all([policy()], aqua, opts()).exit_code(detailed=False) == 0
+    assert reconcile_all([policy()], aqua, opts(dry_run=True)).exit_code(detailed=True) == 0
+
+
+def test_summary_line_always_shows_the_core_counts():
+    aqua = FakeAqua({"devtest-baseline": server(description="x")})
+    line = reconcile_all([policy()], aqua, opts()).summary_line()
+    assert "0 unchanged" in line and "1 adopted" in line and "0 deleted" in line

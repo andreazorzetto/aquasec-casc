@@ -1,9 +1,9 @@
 """Canonical <-> Aqua API field translation.
 
-These tests matter more than they look. ``owned_api_paths`` is the
-``lastAppliedFields`` basis for the three-way diff, and if it over-reports --
-claiming fields the user never wrote -- the reconciler will try to null out
-Aqua's defaults and console edits on the first apply.
+These tests matter more than they look. ``owned_api_paths`` is the set of
+fields the reconciler manages, and if it over-reports -- claiming fields the
+user never wrote -- the reconciler will overwrite Aqua's defaults and console
+edits on the first apply.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ def test_owned_paths_contain_only_what_the_user_wrote():
 def test_unset_fields_with_defaults_are_not_owned():
     """A schema default is not a user statement of intent.
 
-    ``deletionPolicy`` defaults to Orphan and ``enabled`` to true, but a
+    ``enforcement`` defaults to Reconcile and ``enabled`` to true, but a
     document that never mentions them must not claim them -- otherwise the first
     apply would write our defaults over whatever the console has.
     """

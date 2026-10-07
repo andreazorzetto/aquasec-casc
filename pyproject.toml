@@ -31,7 +31,7 @@ dev = [
 [project.scripts]
 # Name is a placeholder pending Andrea's decision; it is referenced in exactly one
 # place in code (aqua_casc.cli.NAME), so changing it is a two-line edit.
-aqua-casc = "aqua_casc.cli.main:main"
+aqua-casc = "aqua_casc.cli.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
