@@ -23,15 +23,9 @@ class KindDef:
     model: Type[Resource]
     field_map: FieldMap
 
-    endpoint: str
-    """API path for collection-level operations (create, list)."""
-
-    item_endpoint: str
-    """API path template for a single object, keyed by name.
-
-    Aqua addresses these objects by name rather than by numeric ID, which is why
-    this is a name template and not an ID template.
-    """
+    # API paths deliberately do not live here: aquasec-lib owns them, and the
+    # client adapter maps each kind onto the library's functions. Keeping one
+    # copy means a path changing in Aqua is fixed in exactly one place.
 
 
 REGISTRY: dict[str, KindDef] = {
@@ -39,8 +33,6 @@ REGISTRY: dict[str, KindDef] = {
         kind=runtime_policy.KIND,
         model=runtime_policy.RuntimePolicy,
         field_map=runtime_policy.FIELD_MAP,
-        endpoint="/api/v2/runtime_policies",
-        item_endpoint="/api/v2/runtime_policies/{name}",
     ),
 }
 

@@ -117,3 +117,42 @@ def test_the_guard_would_actually_catch_a_print(tmp_path):
 
     found = [n for n, _ in _called_names(parsed(offender)) if n in FORBIDDEN_IN_CORE]
     assert found == ["print"]
+
+
+CLIENT = SRC / "client"
+
+
+def _imports(path: Path) -> list[tuple[int, int, str]]:
+    """(line, relative level, module) for every import in a file."""
+    found = []
+    for node in ast.walk(parsed(path)):
+        if isinstance(node, ast.ImportFrom):
+            found.append((node.lineno, node.level, node.module or ""))
+        elif isinstance(node, ast.Import):
+            found.extend((node.lineno, 0, alias.name) for alias in node.names)
+    return found
+
+
+def test_only_the_client_package_imports_aquasec_lib():
+    """One module knows the library exists: the port surface for a Go rewrite."""
+    offences = []
+    for path in python_files(SRC):
+        if CLIENT in path.parents:
+            continue
+        for line, level, module in _imports(path):
+            if level == 0 and module.split(".")[0] == "aquasec":
+                offences.append(f"{path.relative_to(SRC)}:{line} -> {module}")
+    assert offences == [], "\n".join(offences)
+
+
+@pytest.mark.parametrize("layer", [RECONCILE, SCHEMA], ids=["reconcile", "schema"])
+def test_core_layers_do_not_import_the_client_package(layer):
+    """The engine sees an AquaClient protocol, never the implementation."""
+    offences = []
+    for path in python_files(layer):
+        for line, level, module in _imports(path):
+            absolute = level == 0 and module.startswith("aqua_casc.client")
+            relative_up = level >= 2 and module.split(".")[0] == "client"
+            if absolute or relative_up:
+                offences.append(f"{path.relative_to(SRC)}:{line} -> {'.' * level}{module}")
+    assert offences == [], "\n".join(offences)

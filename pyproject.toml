@@ -13,6 +13,10 @@ license = { text = "MIT" }
 # Pinned deliberately: this ships as a single mirrorable image into an air-gapped
 # environment, where "resolves to whatever is latest" is not a thing that can happen.
 dependencies = [
+    # The Aqua API client. 0.14.1 is the first with policy CRUD *and* sign-in
+    # that honours the TLS setting -- without it an on-prem login skips
+    # certificate verification even when a CA bundle is configured.
+    "aquasec==0.14.1",
     "pydantic==2.13.4",
     "PyYAML==6.0.2",
     "requests==2.32.3",
