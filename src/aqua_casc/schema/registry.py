@@ -35,17 +35,16 @@ class KindDef:
     configured as Git says."""
 
     builtin_field: str | None = None
-    """The server field that flags an Aqua-shipped object, if this kind has one.
+    """The server field that flags an Aqua system object, if this kind has one.
 
-    Shipped objects are adopt-only: the tool never creates or deletes them. For
-    runtime policies this is a safe superset -- the lab has 18 shipped policies,
-    of which only some are truly undeletable -- so a shipped template a customer
-    adopted is also never deleted by the tool."""
+    System objects are adopt-only: the tool never creates or deletes them (Aqua
+    refuses to delete them anyway). For runtime policies this is
+    ``is_ootb_policy``, which survives edits; ``author`` does not."""
 
     predefined: frozenset[str] = frozenset()
-    """Names of the predefined objects whose ``predefined_immutable`` fields
-    cannot change. No API field identifies them (verified on the lab), so they
-    are listed by name."""
+    """Names of system objects with fields that cannot change -- listed by name
+    because no API field identifies them, and matched only together with
+    ``builtin_field``, so a custom policy reusing the name is not affected."""
 
     predefined_immutable: tuple[str, ...] = ()
     """API paths that cannot change on a predefined object. A desired change is
@@ -66,10 +65,16 @@ REGISTRY: dict[str, KindDef] = {
         # set on exactly the Aqua-shipped policies, and unchanged by an edit.
         # `author` is NOT usable: an API edit rewrites it to the editor.
         builtin_field="is_ootb_policy",
-        # PENDING CONFIRMATION: which shipped policies are predefined (locked
-        # scope, undeletable). Aqua's docs confirm such policies exist but do
-        # not list them, and no API field distinguishes them.
-        predefined=frozenset(),
+        # Verified on the lab (8 Oct 2026): Aqua refuses to delete any system
+        # policy ("Action forbidden: runtime policy is a system policy"), and
+        # refuses a scope change on the three defaults ("can't change
+        # application scope for default policies"). Other system policies'
+        # scope can change.
+        predefined=frozenset({
+            "Aqua default runtime policy",
+            "Aqua default host runtime policy",
+            "Aqua default function runtime policy",
+        }),
         predefined_immutable=("application_scopes",),
     ),
 }

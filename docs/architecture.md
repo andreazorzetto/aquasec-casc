@@ -186,19 +186,26 @@ never delete, such as a first rollout or a read-mostly pipeline. Under
 
 ## Built-in policies
 
-Aqua ships runtime policies of its own (18 on the lab tenant), flagged
-`is_ootb_policy: true` in the API. The flag survives edits (verified). `author`
-does not: an API edit rewrites it to the editing identity, so it cannot identify
-built-ins.
+Aqua ships runtime policies of its own -- 18 on the lab tenant -- flagged
+`is_ootb_policy: true`. Verified on the lab:
 
-- **Shipped policies are adopt-only.** The tool never creates or deletes them.
-  `export` includes them — the default policy is usually the first one a
-  customer changes — and they carry the marker like anything else.
-- **Predefined policies**, a subset of the shipped ones, cannot be deleted and
-  their scope cannot change. No API field distinguishes them, so they are listed
-  by name in the registry, and a policy must match **both** the flag and the
-  name. A scope change on one is reported as not allowed and not sent; the rest
-  of the change still applies.
+- **They cannot be deleted.** Aqua refuses: "Action forbidden: runtime policy is
+  a system policy". The tool never tries; an orphaned one is reported and kept.
+- **Their controls can change. Their scope can too -- except on the three
+  defaults** ("Aqua default runtime / host runtime / function runtime
+  policy"), where Aqua refuses: "can't change application scope for default
+  policies".
+- **The flag survives edits. `author` does not**: an API edit rewrites it to the
+  editing identity, so `author` cannot identify built-ins.
+
+So built-ins are **adopt-only**: never created or deleted by the tool, otherwise
+managed like any policy, marker included. `export` includes them -- the default
+policy is usually the first one a customer changes.
+
+No API field identifies the three defaults, so the registry lists them by name,
+and a policy must match **both** the name and `is_ootb_policy` -- a custom policy
+that reuses the name is unaffected. A scope change on one of them is reported as
+not allowed and not sent; the rest of the change still applies.
 
 ---
 
