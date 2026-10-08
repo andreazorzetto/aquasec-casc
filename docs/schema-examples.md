@@ -63,6 +63,37 @@ A declarative mapping table absorbs all of that, so the YAML stays stable when
 Aqua renames a field between versions — which matters, because on-prem and SaaS
 are not always on the same one.
 
+### Control sections
+
+The console's sections (Limit Container Privileges, File Block, Port Block,
+Real-time Malware Protection, ...) are sections in the YAML too, under their
+console names. **Writing any setting switches the section on**, unless you also
+write `enabled: false`:
+
+```yaml
+  controls:
+    portBlock:
+      inbound: ["22"]                 # port_block.enabled is sent as true
+    limitContainerPrivileges:
+      privileged: true
+      hostNetwork: true
+```
+
+[runtime-policy-all-controls.yaml](../examples/playground/runtime-policy-all-controls.yaml)
+shows every one. Each was write-tested on a live tenant through create *and* a
+later update, which Aqua validates differently. What that found is built in:
+
+| Setting | Why it is not offered, or is checked |
+|---|---|
+| File Integrity Monitoring *read* / *attributes* | Not in the console. Aqua accepts them on create, then drops *read* and refuses *attributes* on every update. |
+| Malware protection *include directories* | Not in the console. Aqua sets its own list and restores it on every save. |
+| `driftPrevention.preventPrivileged` | Terraform-only. Aqua accepts and discards it. Use `limitContainerPrivileges.privileged`. |
+| `readonlyFiles` on a container policy | Aqua refuses it (deprecated there); `validate` says so. |
+| `blockOutdatedImages` on a host policy | Container policies only; `validate` says so. |
+
+Not covered yet: Secure AI, Tripwire (serverless; it stores a password, and the
+tool never manages credentials) and the forensics `*_config` objects.
+
 ---
 
 ## Ownership — on the object, not in a file

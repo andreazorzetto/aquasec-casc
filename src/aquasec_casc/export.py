@@ -38,16 +38,17 @@ def kind_filename_prefix(kind: str) -> str:
 
 
 def _prune(value: Any) -> Any:
-    """Drop None leaves and the dicts left empty by doing so.
+    """Drop None and empty-string leaves, and the dicts left empty by doing so.
 
-    Aqua returns null for unset lists and blocks; leaving them in would fail
-    validation (a list field is not nullable) and write noise into Git.
+    Aqua returns null for unset lists and blocks, and "" for unset choices (an
+    outdated-images unit, a malware action, while the control is off); leaving
+    them in would fail validation and write noise into Git.
     """
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
             v = _prune(v)
-            if v is None or v == {}:
+            if v is None or v == {} or v == "":
                 continue
             out[k] = v
         return out

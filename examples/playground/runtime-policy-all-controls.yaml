@@ -1,24 +1,22 @@
-# Playground policy 3 of 3: every runtime control the schema supports so far,
-# on, in enforce mode. The schema does not yet cover all of Aqua's controls
-# (e.g. Limit Container Privileges, File Block, Port Block, Malware Scanning).
+# Playground policy 3 of 3: every control in the console's list for container
+# policies, switched on, in enforce mode.
 #
 # Safe on any tenant: enabled is false, so the policy exists but does nothing.
-# Enabled for real, it would block most workloads (only registered, compliant
-# images; no exec; no new processes outside the image): it is a reference for
-# what each control is called, not a policy to roll out.
+# Enabled for real, it would block most workloads (only registered, compliant,
+# recent images; no exec; only "cat" may run): it is a reference for what each
+# control is called, not a policy to roll out.
 #
-# Left out on purpose:
-#   enableForkGuard, forkGuardProcessLimit  deprecated by Aqua (Unified Mode
-#                                           enforcers); the API keeps the field
-#                                           but it has no effect.
-#   bypassScope                             exists only on Aqua's default
-#                                           container and host policies.
+# Not here, on purpose:
+#   Secure AI (Discovery, Unauthorized Models)  not supported by the tool yet
+#   Fork Guard, Read-Only Files                 deprecated for containers; Aqua
+#                                               refuses Read-Only Files here
+#   Bypass Scope                                Aqua's default policies only
 apiVersion: config.aquasec.com/v1alpha1
 kind: RuntimePolicy
 metadata:
   name: casc-playground-all-controls
 spec:
-  description: aquasec-casc playground -- every supported control on; safe to delete
+  description: aquasec-casc playground -- every control on; safe to delete
   enabled: false                      # inert: change only on a tenant you own
   enforce: true
   runtimeType: container
@@ -46,3 +44,53 @@ spec:
     enableIpReputation: true
     enablePortScanProtection: true
     auditBruteForceLogin: true
+
+    # --- sections: writing a setting switches the section on -----------------
+    limitContainerPrivileges:
+      privileged: true
+      hostNetwork: true
+      hostPid: true
+      hostIpc: true
+      hostUts: true
+      hostUserNamespace: true
+      rootUser: true
+      lowPortBinding: true
+      addCapabilities: true
+      ownerUserContext: true
+    capabilitiesBlock:
+      capabilities: ["NET_RAW", "SYS_ADMIN", "SYS_PTRACE"]
+    executablesBlocked:
+      executables: ["nc", "ncat", "wget", "curl"]
+    executablesAllowed:
+      executables: ["cat"]
+    registriesAllowed:
+      registries: ["Docker Hub"]
+    volumesBlocked:
+      volumes: ["/", "/boot", "/dev", "/etc", "/proc", "/sys", "/var/run/docker.sock"]
+    blockOutdatedImages:
+      olderThan: 6
+      unit: months
+    portBlock:
+      inbound: ["22", "23"]
+      outbound: ["25", "6667"]
+    fileBlock:
+      files: ["/etc/shadow", "/root/.ssh/*"]
+    packageBlock:
+      packages: ["netcat*", "nmap"]
+    fileIntegrityMonitoring:
+      paths: ["/etc/*", "/bin/*", "/usr/bin/*"]
+      exceptions: ["/etc/hosts", "/etc/resolv.conf"]
+      monitorCreate: true
+      monitorModify: true
+      monitorDelete: true
+    malwareProtection:
+      action: block
+      excludeDirectories: ["/proc/*", "/sys/*"]
+      fileForensicCollection: true
+      memoryDumpCollection: true
+    forensics:
+      allProcesses: true
+      processCommandLine: true
+      allNetwork: true
+    systemIntegrityMonitoring:
+      systemTimeChanges: true

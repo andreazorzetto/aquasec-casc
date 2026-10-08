@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
@@ -32,10 +32,28 @@ class RuntimeType(str, Enum):
     FUNCTION = "function"
 
 
-class DriftPrevention(StrictModel):
-    """Drift prevention, including exec lockdown and its allow-list."""
+class Section(StrictModel):
+    """A console control section: an on/off switch plus its settings.
+
+    Writing any setting turns the section on unless ``enabled: false`` is
+    written too. In the API the switch and the settings are separate fields,
+    and settings under a switch that is off do nothing -- silently. Asking for
+    a file block list and getting no file block is exactly that trap.
+    """
 
     enabled: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _settings_turn_the_section_on(cls, data):
+        if isinstance(data, dict) and data and "enabled" not in data:
+            return {**data, "enabled": True}
+        return data
+
+
+class DriftPrevention(Section):
+    """Drift prevention, including exec lockdown and its allow-list."""
+
     execLockdown: bool = False
     imageLockdown: bool = False
 
@@ -52,6 +70,206 @@ class DriftPrevention(StrictModel):
     Aqua calls this ``exec_lockdown_white_list``. This is where legitimate
     startup processes go when drift prevention blocks them.
     """
+
+
+# --------------------------------------------------------------------------- #
+# Control sections, named as in the console. Lists of names accept the
+# console's wildcard syntax.
+# --------------------------------------------------------------------------- #
+
+class LimitContainerPrivileges(Section):
+    """Limit Container Privileges: each setting true prevents that privilege."""
+
+    privileged: bool | None = None
+    """Privileged containers."""
+    hostNetwork: bool | None = None
+    """Access to the host network."""
+    hostPid: bool | None = None
+    """Use of the host PID namespace."""
+    hostIpc: bool | None = None
+    """Use of the host IPC namespace."""
+    hostUts: bool | None = None
+    """Use of the host UTS namespace."""
+    hostUserNamespace: bool | None = None
+    """Use of the host user namespace."""
+    rootUser: bool | None = None
+    """Containers configured with the "root" user."""
+    lowPortBinding: bool | None = None
+    """Port binding lower than 1024 (the only one that applies to Windows)."""
+    addCapabilities: bool | None = None
+    """Adding capabilities with --cap-add."""
+    ownerUserContext: bool | None = None
+    """Running in the owner's user context (requires a restart)."""
+
+
+class CapabilitiesBlock(Section):
+    """Capabilities Block: Linux capabilities containers may not use."""
+
+    capabilities: list[str] | None = None
+
+
+class ExecutablesBlocked(Section):
+    """Executables Blocked."""
+
+    executables: list[str] | None = None
+
+
+class ExecutablesAllowed(Section):
+    """Executables Allowed: everything else is prevented from running."""
+
+    executables: list[str] | None = None
+    rootExecutables: list[str] | None = None
+    """Executables allowed to run as root, when listed separately."""
+    separateRootExecutables: bool | None = None
+
+
+class RegistriesAllowed(Section):
+    """Registries Allowed: images may only come from these."""
+
+    registries: list[str] | None = None
+
+
+class VolumesBlocked(Section):
+    """Volumes Blocked: host paths containers may not mount."""
+
+    volumes: list[str] | None = None
+
+
+class TimeUnit(str, Enum):
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+    YEARS = "years"
+
+
+class BlockOutdatedImages(Section):
+    """Block Outdated Images: images older than the threshold do not run."""
+
+    olderThan: int | None = None
+    unit: TimeUnit | None = None
+
+
+class FailedKubernetesChecks(Section):
+    checks: list[str] | None = None
+
+
+class PortBlock(Section):
+    """Port Block: ports containers may not use."""
+
+    inbound: list[str] | None = None
+    outbound: list[str] | None = None
+
+
+class FileRules(Section):
+    """Shared shape of File Block, Read-Only Files and Read-Only Registry."""
+
+    exceptions: list[str] | None = None
+    users: list[str] | None = None
+    exceptionUsers: list[str] | None = None
+    processes: list[str] | None = None
+    exceptionProcesses: list[str] | None = None
+
+
+class FileBlock(FileRules):
+    """File Block: no reading, writing or executing these files."""
+
+    files: list[str] | None = None
+
+
+class ReadonlyFiles(FileRules):
+    """Read-Only Files."""
+
+    files: list[str] | None = None
+
+
+class ReadonlyRegistry(FileRules):
+    """Read-Only Registry (Windows hosts)."""
+
+    paths: list[str] | None = None
+
+
+class PackageBlock(Section):
+    """Package Block: no reading, writing or executing files of these packages."""
+
+    packages: list[str] | None = None
+    exceptionFiles: list[str] | None = None
+    users: list[str] | None = None
+    exceptionUsers: list[str] | None = None
+    processes: list[str] | None = None
+    exceptionProcesses: list[str] | None = None
+
+
+class Monitoring(FileRules):
+    """Shared shape of File Integrity and Registry Access Monitoring: which
+    operations raise audit events. They audit; they never block."""
+
+    paths: list[str] | None = None
+    monitorCreate: bool | None = None
+    monitorModify: bool | None = None
+    monitorDelete: bool | None = None
+
+
+class FileIntegrityMonitoring(Monitoring):
+    """File Integrity Monitoring: create, modify and delete, as in the console.
+
+    The API also has read and attributes switches. Write-tested live: Aqua
+    accepts them on create, then drops read and refuses attributes on every
+    later update -- so they are not offered here.
+    """
+
+
+class RegistryAccessMonitoring(Monitoring):
+    """Registry Access Monitoring (Windows hosts)."""
+
+    monitorRead: bool | None = None
+    monitorAttributes: bool | None = None
+
+
+class OsUsers(Section):
+    users: list[str] | None = None
+    groups: list[str] | None = None
+
+
+class MalwareAction(str, Enum):
+    ALERT = "alert"
+    BLOCK = "block"
+    DELETE = "delete"
+
+
+class MalwareProtection(Section):
+    """Real-time Malware Protection (needs the Advanced Malware Protection
+    licence).
+
+    The scanned directories are not configurable, as in the console: Aqua
+    sets them itself and restores its own list on every save (write-tested).
+    Only exclusions are yours. In audit mode, ``alert`` is the only action.
+    """
+
+    action: MalwareAction | None = None
+    excludeDirectories: list[str] | None = None
+    excludeProcesses: list[str] | None = None
+    fileForensicCollection: bool | None = None
+    memoryDumpCollection: bool | None = None
+
+
+class Forensics(Section):
+    """Forensics: what goes into the audit log."""
+
+    allProcesses: bool | None = None
+    processCommandLine: bool | None = None
+    allNetwork: bool | None = None
+    osUserActivity: bool | None = None
+    successfulLogins: bool | None = None
+    failedLogins: bool | None = None
+    userAccountManagement: bool | None = None
+
+
+class SystemIntegrityMonitoring(Section):
+    """System Integrity Monitoring (hosts): audits, never blocks."""
+
+    systemTimeChanges: bool | None = None
+    windowsServices: bool | None = None
+    auditLogIntegrity: bool | None = None
 
 
 class ScopeVariable(StrictModel):
@@ -111,6 +329,7 @@ class Controls(StrictModel):
     reverseShellAllowedProcesses: list[str] | None = None
     reverseShellAllowedIps: list[str] | None = None
     blockFilelessExec: bool | None = None
+    filelessExecAllowedProcesses: list[str] | None = None
 
     # --- drift -----------------------------------------------------------------
     driftPrevention: DriftPrevention | None = None
@@ -126,6 +345,33 @@ class Controls(StrictModel):
     blockNonK8sContainers: bool | None = None
     noNewPrivileges: bool | None = None
     auditBruteForceLogin: bool | None = None
+
+    # --- control sections (console names) ----------------------------------------
+    limitContainerPrivileges: LimitContainerPrivileges | None = None
+    capabilitiesBlock: CapabilitiesBlock | None = None
+    executablesBlocked: ExecutablesBlocked | None = None
+    executablesAllowed: ExecutablesAllowed | None = None
+    registriesAllowed: RegistriesAllowed | None = None
+    volumesBlocked: VolumesBlocked | None = None
+    blockOutdatedImages: BlockOutdatedImages | None = None
+    failedKubernetesChecks: FailedKubernetesChecks | None = None
+    portBlock: PortBlock | None = None
+    fileBlock: FileBlock | None = None
+    packageBlock: PackageBlock | None = None
+    readonlyFiles: ReadonlyFiles | None = None
+    fileIntegrityMonitoring: FileIntegrityMonitoring | None = None
+    malwareProtection: MalwareProtection | None = None
+    forensics: Forensics | None = None
+    allowedOsUsers: OsUsers | None = None
+    """Whitelisted OS users (hosts)."""
+    blockedOsUsers: OsUsers | None = None
+    """Blacklisted OS users (hosts)."""
+    systemIntegrityMonitoring: SystemIntegrityMonitoring | None = None
+    readonlyRegistry: ReadonlyRegistry | None = None
+    registryAccessMonitoring: RegistryAccessMonitoring | None = None
+    # Not covered: tripwire (serverless; carries a password, and the tool never
+    # manages credential fields), secure_ai_* (not yet verified), and the
+    # auditing.*_config objects (no documented shape).
 
     # --- default policies only ---------------------------------------------------
     bypassScope: BypassScope | None = None
@@ -170,6 +416,22 @@ class RuntimePolicySpec(ManagedSpec):
 
     controls: Controls = Field(default_factory=Controls)
 
+    @model_validator(mode="after")
+    def _sections_aqua_allows_for_this_runtime_type(self):
+        """Aqua refuses these switched on (HTTP 400, write-tested); say so at
+        validate time. Switched off they are fine: Aqua returns them, off, on
+        every policy, so an export carries them."""
+        c = self.controls
+        if self.runtimeType is RuntimeType.CONTAINER and c.readonlyFiles and c.readonlyFiles.enabled:
+            raise ValueError(
+                "controls.readonlyFiles is not available on container policies -- Aqua "
+                "refuses it there (deprecated). controls.fileBlock blocks access to files.")
+        if (self.runtimeType is not RuntimeType.CONTAINER and c.blockOutdatedImages
+                and c.blockOutdatedImages.enabled):
+            raise ValueError(
+                "controls.blockOutdatedImages is only available on container policies.")
+        return self
+
 
 class RuntimePolicy(Resource):
     apiVersion: str = API_VERSION
@@ -186,6 +448,13 @@ class RuntimePolicy(Resource):
 # server-assigned. The three-way diff leaves anything outside this table alone,
 # so omitting them is what stops the tool trying to null out Aqua's own metadata.
 # --------------------------------------------------------------------------- #
+
+def _section(name: str, block: str, fields: dict[str, str]) -> list[FieldMapping]:
+    """Mappings for one control section: its switch, then each setting."""
+    base = f"spec.controls.{name}"
+    return [FieldMapping(f"{base}.enabled", f"{block}.enabled"),
+            *(FieldMapping(f"{base}.{c}", f"{block}.{a}") for c, a in fields.items())]
+
 
 FIELD_MAP = FieldMap(
     kind=KIND,
@@ -322,6 +591,83 @@ FIELD_MAP = FieldMap(
             api_aliases=("limit_new_privileges",),
         ),
         FieldMapping("spec.controls.auditBruteForceLogin", "audit_brute_force_login"),
+
+        FieldMapping("spec.controls.filelessExecAllowedProcesses",
+                     "block_fileless_exec_proc_white_list"),
+
+        # --- control sections -------------------------------------------------------
+        *_section("limitContainerPrivileges", "limit_container_privileges", {
+            "privileged": "privileged", "hostNetwork": "netmode", "hostPid": "pidmode",
+            "hostIpc": "ipcmode", "hostUts": "utsmode", "hostUserNamespace": "usermode",
+            "rootUser": "prevent_root_user", "lowPortBinding": "prevent_low_port_binding",
+            "addCapabilities": "block_add_capabilities", "ownerUserContext": "use_host_user"}),
+        *_section("capabilitiesBlock", "linux_capabilities",
+                  {"capabilities": "remove_linux_capabilities"}),
+        *_section("executablesBlocked", "executable_blacklist", {"executables": "executables"}),
+        *_section("executablesAllowed", "allowed_executables", {
+            "executables": "allow_executables", "rootExecutables": "allow_root_executables",
+            "separateRootExecutables": "separate_executables"}),
+        *_section("registriesAllowed", "allowed_registries", {"registries": "allowed_registries"}),
+        *_section("volumesBlocked", "restricted_volumes", {"volumes": "volumes"}),
+        *_section("blockOutdatedImages", "block_outdated_images",
+                  {"olderThan": "threshold_value", "unit": "threshold_unit"}),
+        *_section("failedKubernetesChecks", "failed_kubernetes_checks", {"checks": "failed_checks"}),
+        *_section("portBlock", "port_block",
+                  {"inbound": "block_inbound_ports", "outbound": "block_outbound_ports"}),
+        *_section("fileBlock", "file_block", {
+            "files": "filename_block_list", "exceptions": "exceptional_block_files",
+            "users": "block_files_users", "exceptionUsers": "exceptional_block_files_users",
+            "processes": "block_files_processes",
+            "exceptionProcesses": "exceptional_block_files_processes"}),
+        *_section("packageBlock", "package_block", {
+            "packages": "packages_black_list", "exceptionFiles": "exceptional_block_packages_files",
+            "users": "block_packages_users", "exceptionUsers": "exceptional_block_packages_users",
+            "processes": "block_packages_processes",
+            "exceptionProcesses": "exceptional_block_packages_processes"}),
+        *_section("readonlyFiles", "readonly_files", {
+            "files": "readonly_files", "exceptions": "exceptional_readonly_files",
+            "users": "readonly_files_users", "exceptionUsers": "exceptional_readonly_files_users",
+            "processes": "readonly_files_processes",
+            "exceptionProcesses": "exceptional_readonly_files_processes"}),
+        *_section("fileIntegrityMonitoring", "file_integrity_monitoring", {
+            "paths": "monitored_files", "exceptions": "exceptional_monitored_files",
+            "users": "monitored_files_users", "exceptionUsers": "exceptional_monitored_files_users",
+            "processes": "monitored_files_processes",
+            "exceptionProcesses": "exceptional_monitored_files_processes",
+            "monitorCreate": "monitored_files_create", "monitorModify": "monitored_files_modify",
+            "monitorDelete": "monitored_files_delete"}),
+        *_section("malwareProtection", "malware_scan_options", {
+            "action": "action", "excludeDirectories": "exclude_directories", "excludeProcesses": "exclude_processes",
+            "fileForensicCollection": "file_forensic_collection",
+            "memoryDumpCollection": "selective_memory_dump_collection"}),
+        *_section("forensics", "auditing", {
+            "allProcesses": "audit_all_processes", "processCommandLine": "audit_process_cmdline",
+            "allNetwork": "audit_all_network", "osUserActivity": "audit_os_user_activity",
+            "successfulLogins": "audit_success_login", "failedLogins": "audit_failed_login",
+            "userAccountManagement": "audit_user_account_management"}),
+        *_section("allowedOsUsers", "whitelisted_os_users",
+                  {"users": "user_white_list", "groups": "group_white_list"}),
+        *_section("blockedOsUsers", "blacklisted_os_users",
+                  {"users": "user_black_list", "groups": "group_black_list"}),
+        *_section("systemIntegrityMonitoring", "system_integrity_protection", {
+            "systemTimeChanges": "audit_systemtime_change",
+            "windowsServices": "windows_services_monitoring",
+            "auditLogIntegrity": "monitor_audit_log_integrity"}),
+        *_section("readonlyRegistry", "readonly_registry", {
+            "paths": "readonly_registry_paths", "exceptions": "exceptional_readonly_registry_paths",
+            "users": "readonly_registry_users", "exceptionUsers": "exceptional_readonly_registry_users",
+            "processes": "readonly_registry_processes",
+            "exceptionProcesses": "exceptional_readonly_registry_processes"}),
+        *_section("registryAccessMonitoring", "registry_access_monitoring", {
+            "paths": "monitored_registry_paths", "exceptions": "exceptional_monitored_registry_paths",
+            "users": "monitored_registry_users",
+            "exceptionUsers": "exceptional_monitored_registry_users",
+            "processes": "monitored_registry_processes",
+            "exceptionProcesses": "exceptional_monitored_registry_processes",
+            "monitorRead": "monitored_registry_read", "monitorModify": "monitored_registry_modify",
+            "monitorAttributes": "monitored_registry_attributes",
+            "monitorCreate": "monitored_registry_create",
+            "monitorDelete": "monitored_registry_delete"}),
 
         # --- default policies only (see KindDef.only_on) --------------------------
         FieldMapping("spec.controls.bypassScope.enabled", "bypass_scope.enabled"),

@@ -203,3 +203,35 @@ def test_destroy_refuses_unmanaged_then_deletes_managed(client, throwaway, tmp_p
     code, out = cli(client, "destroy", "-f", str(repo), "--yes")
     assert code == 0 and "1 destroyed" in out, out
     assert server() is None
+
+
+def test_the_all_controls_example_is_stored_as_written_and_survives_a_resave(client, tmp_path):
+    """Every section, through create and a later update. Aqua validates the two
+    differently: some settings are accepted on create, then dropped or refused
+    on update -- this is the test that catches the next one."""
+    from pathlib import Path
+
+    from aquasec import runtime_policies as rp
+
+    tag = secrets.token_hex(3)
+    name = f"aquasec-casc-live-{tag}-all-controls"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    example = Path(__file__).resolve().parents[2] / "examples/playground/runtime-policy-all-controls.yaml"
+    (repo / "policy.yaml").write_text(
+        example.read_text(encoding="utf-8").replace("name: casc-playground-all-controls", f"name: {name}"),
+        encoding="utf-8")
+    (repo / "aquasec-casc.yaml").write_text(f"instance: live-{tag}\n", encoding="utf-8")
+
+    try:
+        code, out = cli(client, "apply", "-f", str(repo))
+        assert code == 0 and "1 created" in out, out
+        code, out = cli(client, "plan", "-f", str(repo), "--detailed-exitcode")
+        assert code == 0, out
+
+        stored = rp.get_runtime_policy(client.server, client.token, name)
+        rp.update_runtime_policy(client.server, client.token, name, stored)   # a console save
+        code, out = cli(client, "plan", "-f", str(repo), "--detailed-exitcode")
+        assert code == 0, out
+    finally:
+        rp.delete_runtime_policy(client.server, client.token, name, missing_ok=True)
