@@ -12,6 +12,8 @@ from .settings import (
     ConfigError,
     Credentials,
     Settings,
+    env_has_credentials,
+    resolve_settings,
     settings_from_env,
     settings_from_profile,
 )
@@ -25,6 +27,8 @@ __all__ = [
     "SAAS_USER",
     "Settings",
     "connect",
+    "env_has_credentials",
+    "resolve_settings",
     "settings_from_env",
     "settings_from_profile",
     "sign_in",

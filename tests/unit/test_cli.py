@@ -256,3 +256,71 @@ def test_release_json(repo):
     data = json.loads(out)
     assert code == 0 and data["summary"] == "1 released"
     assert data["results"][0]["outcome"] == "released"
+
+
+# --------------------------------------------------------------------------- #
+# validate ignores connection flags; profile management
+# --------------------------------------------------------------------------- #
+
+def test_validate_accepts_and_ignores_profile_and_instance(repo):
+    code, out, _ = run(["validate", "-f", str(repo), "--profile", "anything", "--instance", "x"])
+    assert code == 0 and "1 resource(s) valid" in out
+
+
+@pytest.fixture
+def store(monkeypatch):
+    """A fake profile store behind aquasec_casc.client.profiles."""
+    from aquasec_casc.client import profiles
+
+    state = {"default": "lab", "profiles": {
+        "lab": {"auth_method": "api_keys", "csp_endpoint": "https://t.cloud.aquasec.com",
+                "api_endpoint": "https://eu-1.api.cloudsploit.com", "credentials_ref": "1a2b3c4d"},
+        "onprem": {"auth_method": "user_pass", "csp_endpoint": "https://aqua.local",
+                   "credentials_ref": "5e6f7a8b"}}}
+
+    def info(name=None):
+        name = name or state["default"]
+        p = state["profiles"].get(name)
+        return None if p is None else {"name": name, "is_default": name == state["default"], **p}
+
+    monkeypatch.setattr(profiles, "default_name", lambda: state["default"])
+    monkeypatch.setattr(profiles, "info", info)
+    monkeypatch.setattr(profiles, "all_info", lambda: [info(n) for n in state["profiles"]])
+    monkeypatch.setattr(profiles, "delete", lambda n: {"success": state["profiles"].pop(n, None) is not None})
+    monkeypatch.setattr(profiles, "set_default", lambda n: state.update(default=n) or {"success": True})
+    return state
+
+
+def test_profile_list_marks_the_default(store):
+    code, out, _ = run(["profile", "list"])
+    assert code == 0
+    assert "* lab" in out and "  onprem" in out
+
+
+def test_profile_show_defaults_to_the_default_and_never_shows_secrets(store):
+    code, out, _ = run(["profile", "show"])
+    assert code == 0 and "lab  (default)" in out and "ref 1a2b3c4d" in out
+
+
+def test_profile_show_json(store):
+    code, out, _ = run(["profile", "show", "onprem", "--output", "json"])
+    assert code == 0 and json.loads(out)["name"] == "onprem"
+
+
+def test_profile_set_default_and_delete(store):
+    assert run(["profile", "set-default", "onprem"])[0] == 0 and store["default"] == "onprem"
+    assert run(["profile", "delete", "lab"])[0] == 0 and "lab" not in store["profiles"]
+
+
+@pytest.mark.parametrize("action", ["show", "delete", "set-default"])
+def test_unknown_profiles_are_refused(store, action):
+    code, _, err = run(["profile", action, "nope"])
+    assert code == 1 and "No saved profile 'nope'" in err
+    assert store["default"] == "lab"
+
+
+def test_setup_runs_the_library_wizard(monkeypatch):
+    from aquasec_casc.client import profiles
+    seen = []
+    monkeypatch.setattr(profiles, "setup", lambda name: seen.append(name) or True)
+    assert run(["setup", "lab"])[0] == 0 and seen == ["lab"]

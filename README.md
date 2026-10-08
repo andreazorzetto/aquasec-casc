@@ -32,8 +32,15 @@ Python 3.11+. Talks to Aqua through [aquasec-lib](https://pypi.org/project/aquas
 
 ## Configure
 
-Credentials come from the environment (see [.env.example](.env.example)) or a
-saved aquasec-lib profile (`--profile NAME`) -- never from a file in the repo.
+Credentials come from a saved profile or the environment -- never from a file
+in the repo. In order: `--profile NAME`; `AQUA_*` variables if any are set (see
+[.env.example](.env.example)), which is what CI and Argo CD use; the default
+profile. Profiles are shared with the other aquasec tools:
+
+```sh
+aquasec-casc setup [NAME]                  # interactive; tests the connection, saves encrypted
+aquasec-casc profile list | show [NAME] | set-default NAME | delete NAME
+```
 
 The **instance name** goes in `aquasec-casc.yaml` at the root of the config
 folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
@@ -47,6 +54,7 @@ folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 | `apply -f DIR` | Make Aqua match the YAML. `--no-delete` holds back deletions. |
 | `export --scope S -o DIR` | Write existing configuration as YAML, ready to adopt. Read-only. |
 | `release` | Stop managing objects without deleting them; `--to` hands them over. |
+| `setup`, `profile` | Save and manage credential profiles. |
 
 ## Documentation
 

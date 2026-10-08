@@ -11,6 +11,9 @@ Exit codes:
             --detailed-exitcode (Argo CD fails a sync on any non-zero exit)
   export    0 done, 1 error
   release   0 done (or nothing to release), 1 error
+  setup, profile   0 done, 1 error
+
+Credentials: --profile, else AQUA_* variables, else the default saved profile.
 """
 
 from __future__ import annotations
@@ -232,11 +235,16 @@ def load_resources(path: Path):
 
 
 def default_connect(profile: str | None):
-    """Build a live client. Separate so tests can swap it out."""
-    from ..client import ConfigError, connect, settings_from_env, settings_from_profile
+    """Build a live client. Separate so tests can swap it out.
+
+    Says on stderr which credentials it used, so stdout stays clean for
+    ``--output json`` and a run never silently acts as an unexpected identity.
+    """
+    from ..client import ConfigError, connect, resolve_settings
 
     try:
-        settings = settings_from_profile(profile) if profile else settings_from_env()
+        settings = resolve_settings(profile)
+        print(f"Using {settings.source}.", file=sys.stderr)
         return connect(settings)
     except ConfigError as exc:
         raise UsageError(str(exc))
@@ -388,6 +396,66 @@ def cmd_release(args, out: Out, connect: Callable) -> int:
     return code
 
 
+def cmd_setup(args, out: Out, connect: Callable) -> int:
+    from ..client import profiles
+    return 0 if profiles.setup(args.name) else 1
+
+
+def _profile_lines(info: dict) -> list[str]:
+    lines = [f"Profile:        {info['name']}{'  (default)' if info.get('is_default') else ''}",
+             f"Authentication: {info.get('auth_method', 'unknown')}",
+             f"Console URL:    {info.get('csp_endpoint') or '-'}"]
+    if info.get("api_endpoint"):
+        lines.append(f"API endpoint:   {info['api_endpoint']}")
+    ref = info.get("credentials_ref")
+    lines.append(f"Credentials:    {'present (ref ' + ref + ')' if ref else 'missing'}")
+    return lines
+
+
+def cmd_profile(args, out: Out, connect: Callable) -> int:
+    from ..client import profiles
+    as_json = args.output == "json"
+
+    if args.action == "list":
+        infos = profiles.all_info()
+        if as_json:
+            out.line(json.dumps(infos, indent=2))
+        elif not infos:
+            out.line(f"No saved profiles. Create one with '{NAME} setup'.")
+        else:
+            width = max(len(i["name"]) for i in infos)
+            out.line(f"  {'PROFILE'.ljust(width)}  {'AUTH'.ljust(9)}  CONSOLE", "bold")
+            for i in infos:
+                mark = "*" if i.get("is_default") else " "
+                out.line(f"{mark} {i['name'].ljust(width)}  {str(i.get('auth_method')).ljust(9)}  "
+                         f"{i.get('csp_endpoint') or '-'}")
+            out.line("* default: used when neither --profile nor AQUA_* credentials are given",
+                     "dim")
+        return 0
+
+    if args.action == "show":
+        info = profiles.info(args.name)
+        if info is None:
+            raise UsageError(f"No saved profile {args.name or profiles.default_name()!r}. "
+                             f"See '{NAME} profile list'.")
+        out.line(json.dumps(info, indent=2) if as_json else "\n".join(_profile_lines(info)))
+        return 0
+
+    known = {i["name"] for i in profiles.all_info()}
+    if args.name not in known:
+        raise UsageError(f"No saved profile {args.name!r}. See '{NAME} profile list'.")
+    result = (profiles.delete(args.name) if args.action == "delete"
+              else profiles.set_default(args.name))
+    if not result.get("success"):
+        raise UsageError(f"{args.action} {args.name!r} failed: {result.get('error') or 'unknown error'}")
+    if as_json:
+        out.line(json.dumps(result, indent=2))
+    else:
+        out.line(f"Deleted profile {args.name!r}." if args.action == "delete"
+                 else f"{args.name!r} is now the default profile.", "green")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # Wiring
 # --------------------------------------------------------------------------- #
@@ -406,14 +474,20 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--output", choices=("text", "json"), default="text")
         p.add_argument("--no-color", action="store_true", help="never colour the output")
 
-    def connection(p):
+    def connection(p, ignored=False):
+        note = " (accepted and ignored: validate never connects)" if ignored else ""
         p.add_argument("--profile", metavar="NAME",
-                       help="use a saved aquasec-lib profile instead of AQUA_* variables")
+                       help="saved profile to use (default: AQUA_* variables if set, "
+                            "else the default profile)" + note)
         p.add_argument("--instance", metavar="NAME",
-                       help=f"instance name (default: ${ENV_INSTANCE}, then {CONFIG_FILE})")
+                       help=f"instance name (default: ${ENV_INSTANCE}, then {CONFIG_FILE})"
+                            + note)
 
     p = sub.add_parser("validate", help="check the YAML against the schema (no network)")
     common(p)
+    # Accepted so that 'diff ... --profile X' can become 'validate ... --profile X'
+    # by changing one word.
+    connection(p, ignored=True)
     p.set_defaults(handler=cmd_validate)
 
     for name, handler, help_ in (("diff", cmd_diff, "show what apply would change (read-only)"),
@@ -459,6 +533,30 @@ def build_parser() -> argparse.ArgumentParser:
                    help="hand the objects over to this instance instead of releasing them")
     p.add_argument("--dry-run", action="store_true", help="show what would be released")
     p.set_defaults(handler=cmd_release)
+
+    p = sub.add_parser("setup", help="save credentials as a profile (interactive)",
+                       description="The aquasec-lib setup wizard: asks for the connection "
+                                   "details, tests them, and saves them encrypted in ~/.aqua. "
+                                   "The same profiles the other aquasec tools use.")
+    p.add_argument("name", nargs="?", help="profile name (asked for if omitted)")
+    p.add_argument("--no-color", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(handler=cmd_setup, output="text")
+
+    p = sub.add_parser("profile", help="list, show, delete saved profiles, or set the default")
+    actions = p.add_subparsers(dest="action", required=True, metavar="ACTION")
+    for action, help_, name_arg in (
+            ("list", "list saved profiles", None),
+            ("show", "show one profile (default: the default profile); never shows secrets", "?"),
+            ("delete", "delete a saved profile", 1),
+            ("set-default", "make a profile the default", 1)):
+        a = actions.add_parser(action, help=help_)
+        if name_arg == "?":
+            a.add_argument("name", nargs="?")
+        elif name_arg:
+            a.add_argument("name")
+        a.add_argument("--output", choices=("text", "json"), default="text")
+        a.add_argument("--no-color", action="store_true", help="never colour the output")
+        a.set_defaults(handler=cmd_profile)
 
     return parser
 

@@ -1,6 +1,7 @@
 """Connection settings: where Aqua is, how to sign in, how to trust it.
 
-Two sources:
+Two sources, tried in this order unless ``--profile`` names one
+(``resolve_settings``):
 
 * **Environment variables**, the only source in Argo CD and CI. The names are
   this tool's own (``AQUA_URL``, ``AQUA_API_KEY`` ...), mapped onto the library
@@ -9,7 +10,8 @@ Two sources:
   The same encrypted profiles the library's other tools use. Credentials are
   read through ``ConfigManager`` directly rather than ``load_profile_credentials``,
   which would copy them into the process environment where any child process
-  inherits them.
+  inherits them. With no ``--profile`` and no credentials in the environment,
+  the default profile is used -- the same default the library's tools use.
 
 TLS and timeout always come from the environment, whichever source supplied the
 credentials.
@@ -131,7 +133,17 @@ _HELP = """Set one of these:
   SaaS, user/password:  AQUA_USER, AQUA_PASSWORD, AQUA_API_ENDPOINT
   On-prem:              AQUA_USER, AQUA_PASSWORD, AQUA_URL
 
-or use a saved profile with --profile."""
+or save a profile with 'aquasec-casc setup'. With no AQUA_* credentials set,
+the default profile is used; --profile picks another."""
+
+
+_CREDENTIAL_VARS = ("AQUA_API_KEY", "AQUA_API_SECRET", "AQUA_USER", "AQUA_PASSWORD")
+
+
+def env_has_credentials(env: Mapping[str, str]) -> bool:
+    """Any credential variable set -- even a partial set, which is then an error
+    rather than a silent fall-through to a saved profile."""
+    return any(_clean(env.get(name)) for name in _CREDENTIAL_VARS)
 
 
 def credentials_from_env(env: Mapping[str, str]) -> Credentials:
@@ -230,9 +242,36 @@ def credentials_from_profile(name: str | None = None, config_manager=None) -> Cr
 def settings_from_profile(name: str | None = None, env: Mapping[str, str] | None = None,
                           config_manager=None) -> Settings:
     env = os.environ if env is None else env
+    if config_manager is None:
+        from aquasec.config import ConfigManager
+        config_manager = ConfigManager()
+    if not name:
+        name = config_manager.get_default_profile()
     return Settings(
         credentials=credentials_from_profile(name, config_manager),
         verify=_tls_from_env(env),
         timeout=_timeout_from_env(env),
-        source=f"profile {name or 'default'}",
+        source=f"profile '{name}'",
     )
+
+
+def resolve_settings(profile: str | None = None, env: Mapping[str, str] | None = None,
+                     config_manager=None) -> Settings:
+    """Where the credentials come from: ``--profile``, then ``AQUA_*`` variables,
+    then the default saved profile.
+
+    The environment wins over the default profile so that a CI job or an Argo CD
+    hook -- which set variables and have no profiles -- behave the same on a
+    machine that happens to have one.
+    """
+    env = os.environ if env is None else env
+    if profile:
+        return settings_from_profile(profile, env, config_manager)
+    if env_has_credentials(env):
+        return settings_from_env(env)
+    if config_manager is None:
+        from aquasec.config import ConfigManager
+        config_manager = ConfigManager()
+    if config_manager.list_profiles():
+        return settings_from_profile(None, env, config_manager)
+    raise ConfigError("No Aqua credentials found.\n\n" + _HELP)

@@ -13,6 +13,8 @@ from aquasec_casc.client.settings import (
     SAAS_KEY,
     SAAS_USER,
     ConfigError,
+    env_has_credentials,
+    resolve_settings,
     settings_from_env,
     settings_from_profile,
 )
@@ -220,3 +222,41 @@ def test_reading_a_profile_does_not_copy_credentials_into_the_environment(monkey
     settings_from_profile("onprem", env={}, config_manager=FakeConfigManager(PROFILES))
     assert SECRET not in os.environ.values()
     assert PASSWORD not in os.environ.values()
+
+
+# --------------------------------------------------------------------------- #
+# Which source: --profile, then the environment, then the default profile
+# --------------------------------------------------------------------------- #
+
+API_ENV = {"AQUA_API_KEY": KEY, "AQUA_API_SECRET": SECRET, "AQUA_ROLE": "admin",
+           "AQUA_API_ENDPOINT": "https://eu-1.api.cloudsploit.com"}
+
+
+def test_an_explicit_profile_wins_over_the_environment():
+    s = resolve_settings("onprem", env=API_ENV, config_manager=FakeConfigManager(PROFILES))
+    assert s.credentials.mode == ONPREM and s.source == "profile 'onprem'"
+
+
+def test_the_environment_wins_over_the_default_profile():
+    """CI and Argo CD set variables; a stray profile on the machine must not matter."""
+    s = resolve_settings(None, env=API_ENV, config_manager=FakeConfigManager(PROFILES))
+    assert s.source == "environment"
+
+
+def test_with_neither_the_default_profile_is_used():
+    s = resolve_settings(None, env={}, config_manager=FakeConfigManager(PROFILES, default="onprem"))
+    assert s.source == "profile 'onprem'" and s.credentials.mode == ONPREM
+
+
+def test_a_partial_environment_is_an_error_not_a_fall_through():
+    with pytest.raises(ConfigError, match="AQUA_PASSWORD"):
+        resolve_settings(None, env={"AQUA_USER": "me"}, config_manager=FakeConfigManager(PROFILES))
+
+
+def test_nothing_at_all_points_at_setup():
+    with pytest.raises(ConfigError, match="aquasec-casc setup"):
+        resolve_settings(None, env={}, config_manager=FakeConfigManager({}))
+
+
+def test_tls_settings_alone_do_not_count_as_credentials():
+    assert not env_has_credentials({"AQUA_URL": "https://x", "AQUA_TLS_INSECURE": "true"})

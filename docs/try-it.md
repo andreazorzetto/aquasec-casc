@@ -22,16 +22,23 @@ source .venv/bin/activate
 cp -R examples/playground /tmp/playground     # work on a copy; you will edit it
 ```
 
-Credentials come from the environment or from a saved aquasec-lib profile --
-never from a file in the repository.
+Credentials come from a saved profile or the environment -- never from a file
+in the repository. Profiles are the same encrypted ones the other aquasec tools
+use, so if you have one already there is nothing to do:
 
-```sh
-# Either: a profile saved with aquasec-lib (same profiles as the other aquasec tools)
-export P="--profile <your-profile>"
-
-# Or: environment variables (see .env.example), then leave $P empty
-set -a; source .env; set +a; export P=""
 ```
+$ aquasec-casc profile list
+  PROFILE   AUTH       CONSOLE
+* lab       api_keys   https://xxxxxxxxxx.cloud.aquasec.com
+* default: used when neither --profile nor AQUA_* credentials are given
+
+$ aquasec-casc setup lab          # otherwise: the interactive wizard
+```
+
+Each command says which credentials it used (`Using profile 'lab'.`, on
+stderr). The order is `--profile NAME`, then `AQUA_*` variables if any are set
+(see `.env.example`), then the default profile. `profile show`, `profile
+set-default` and `profile delete` manage the rest; none of them print secrets.
 
 The instance name, `playground`, comes from `aquasec-casc.yaml` in the folder.
 
@@ -51,18 +58,18 @@ a typo'd control would otherwise be accepted and silently do nothing.
 ## 2. Diff, then apply
 
 ```
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 + RuntimePolicy/casc-playground-baseline: will be created
 + RuntimePolicy/casc-playground-strict: will be created
 0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 2 planned
                                                             # exit code 2: changes pending
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 + RuntimePolicy/casc-playground-baseline: created
 + RuntimePolicy/casc-playground-strict: created
 0 unchanged, 2 created, 0 updated, 0 adopted, 0 deleted
 
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted    # exit code 0: in sync
 ```
 
@@ -75,12 +82,12 @@ policy is its own -- there is no state file.
 In `runtime-policy-baseline.yaml`, set `enforce: true`:
 
 ```
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: will be updated
     ! enforce: false -> true
 1 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: updated
     ! enforce: false -> true
 ```
@@ -93,11 +100,11 @@ In the console, open `casc-playground-strict` and switch off **Block fileless
 execution**. Save.
 
 ```
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: will be updated
     ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: updated
     ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
 ```
@@ -114,7 +121,7 @@ Add `enforcement: ReportOnly` at the end of `runtime-policy-strict.yaml`'s
 `spec`, and switch **Block fileless execution** off in the console again:
 
 ```
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 ! RuntimePolicy/casc-playground-strict: drift detected (ReportOnly)
     ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
     drift detected; spec.enforcement is ReportOnly, so apply changes nothing
@@ -127,15 +134,15 @@ Remove the line and apply again to put it back.
 ```
 $ rm /tmp/playground/runtime-policy-strict.yaml
 
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 - RuntimePolicy/casc-playground-strict: will be deleted
     no file describes it; will be deleted
 
-$ aquasec-casc apply -f /tmp/playground $P --no-delete
+$ aquasec-casc apply -f /tmp/playground --no-delete
 ? RuntimePolicy/casc-playground-strict: orphaned
     orphaned, not deleted (--no-delete)
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 - RuntimePolicy/casc-playground-strict: deleted
     no file describes it any more
 ```
@@ -148,15 +155,15 @@ In the console, create a runtime policy named `casc-playground-handmade`
 (container, scope Global, **disabled**), with any controls you like.
 
 ```
-$ aquasec-casc export --scope Global --name casc-playground-handmade -o /tmp/playground $P
+$ aquasec-casc export --scope Global --name casc-playground-handmade -o /tmp/playground
 + runtime-policy-casc-playground-handmade.yaml  ('casc-playground-handmade')
 1 exported, 0 skipped -> /tmp/playground
 
-$ aquasec-casc diff -f /tmp/playground $P
+$ aquasec-casc diff -f /tmp/playground
 ~ RuntimePolicy/casc-playground-handmade: will be adopted
     + ownership marker (managed-by: aquasec-casc/playground)
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-handmade: adopted
 ```
 
@@ -170,12 +177,12 @@ adopt those on a shared tenant**: every API edit rewrites a runtime policy's
 ## 8. Let go without deleting
 
 ```
-$ aquasec-casc release -f /tmp/playground $P --dry-run
+$ aquasec-casc release -f /tmp/playground --dry-run
 ~ RuntimePolicy/casc-playground-baseline: will be released
 ~ RuntimePolicy/casc-playground-handmade: will be released
 2 to release
 
-$ aquasec-casc release -f /tmp/playground $P
+$ aquasec-casc release -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: released
     marker removed; the object is no longer managed
 ~ RuntimePolicy/casc-playground-handmade: released
@@ -193,16 +200,16 @@ shows both as `will be adopted` -- which is the warning above in action.
 Adopt them again, then delete them the Git way:
 
 ```
-$ aquasec-casc apply -f /tmp/playground $P            # re-adopts both
+$ aquasec-casc apply -f /tmp/playground            # re-adopts both
 $ rm /tmp/playground/runtime-policy-*.yaml
 
-$ aquasec-casc apply -f /tmp/playground $P
+$ aquasec-casc apply -f /tmp/playground
 ? RuntimePolicy/casc-playground-baseline: orphaned
     not deleted: no resources were loaded at all, which is more likely a wrong
     path or an empty mount than an instruction to delete everything. Pass
     --allow-empty if it is intended.
 
-$ aquasec-casc apply -f /tmp/playground $P --allow-empty
+$ aquasec-casc apply -f /tmp/playground --allow-empty
 - RuntimePolicy/casc-playground-baseline: deleted
 - RuntimePolicy/casc-playground-handmade: deleted
 ```
