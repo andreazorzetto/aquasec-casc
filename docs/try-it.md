@@ -48,7 +48,7 @@ The instance name, `playground`, comes from `aquasec-casc.yaml` in the folder.
 
 ```
 $ aquasec-casc validate -f /tmp/playground
-2 resource(s) valid
+3 resource(s) valid
 ```
 
 Try a typo (`enforcee: false`) to see the error: the file, the path, and a
@@ -59,17 +59,19 @@ a typo'd control would otherwise be accepted and silently do nothing.
 
 ```
 $ aquasec-casc plan -f /tmp/playground
++ RuntimePolicy/casc-playground-all-controls: will be created
 + RuntimePolicy/casc-playground-baseline: will be created
 + RuntimePolicy/casc-playground-strict: will be created
-0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 2 planned
+0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 3 planned
 
 $ aquasec-casc apply -f /tmp/playground
++ RuntimePolicy/casc-playground-all-controls: created
 + RuntimePolicy/casc-playground-baseline: created
 + RuntimePolicy/casc-playground-strict: created
-0 unchanged, 2 created, 0 updated, 0 adopted, 0 deleted
+0 unchanged, 3 created, 0 updated, 0 adopted, 0 deleted
 
 $ aquasec-casc plan -f /tmp/playground
-2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
+3 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
 ```
 
 In the console (Policies → Runtime Policies), each description now ends with
@@ -84,7 +86,7 @@ In `runtime-policy-baseline.yaml`, set `enforce: true`:
 $ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: will be updated
     ! enforce: false -> true
-1 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
+2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
 
 $ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: updated
@@ -112,7 +114,7 @@ Git wins. The YAML name leads, the API name is in brackets for anyone checking
 the console or the logs.
 
 Now change a setting the YAML does **not** mention, e.g. **Fork guard**. `plan`
-stays at `2 unchanged`: fields the YAML leaves out belong to the console.
+stays at `3 unchanged`: fields the YAML leaves out belong to the console.
 
 ## 5. Report only
 
@@ -177,21 +179,24 @@ adopt those on a shared tenant**: every API edit rewrites a runtime policy's
 
 ```
 $ aquasec-casc release -f /tmp/playground --dry-run
+~ RuntimePolicy/casc-playground-all-controls: will be released
 ~ RuntimePolicy/casc-playground-baseline: will be released
 ~ RuntimePolicy/casc-playground-handmade: will be released
-2 to release
+3 to release
 
 $ aquasec-casc release -f /tmp/playground
+~ RuntimePolicy/casc-playground-all-controls: released
+    marker removed; the object is no longer managed
 ~ RuntimePolicy/casc-playground-baseline: released
     marker removed; the object is no longer managed
 ~ RuntimePolicy/casc-playground-handmade: released
     marker removed; the object is no longer managed
-2 released
+3 released
 Next: remove these objects' files from Git, or stop the pipeline. While they remain, the next apply adopts the objects again.
 ```
 
 The policies stay exactly as they are, minus the marker. Running `plan` now
-shows both as `will be adopted` -- which is the warning above in action.
+shows all three as `will be adopted` -- which is the warning above in action.
 `--to <instance>` hands them to another instance instead.
 
 ## 9. Clean up
@@ -200,17 +205,19 @@ shows both as `will be adopted` -- which is the warning above in action.
 manages -- after showing the plan and asking you to type the instance name:
 
 ```
-$ aquasec-casc apply -f /tmp/playground            # re-adopts both
+$ aquasec-casc apply -f /tmp/playground            # re-adopts all three
 $ aquasec-casc destroy -f /tmp/playground
+- RuntimePolicy/casc-playground-all-controls: will be deleted
 - RuntimePolicy/casc-playground-baseline: will be deleted
 - RuntimePolicy/casc-playground-handmade: will be deleted
-2 to destroy
+3 to destroy
 This deletes the objects described in /tmp/playground owned by instance 'playground'. It cannot be undone.
 Type the instance name (playground) to confirm: playground
 
+- RuntimePolicy/casc-playground-all-controls: deleted
 - RuntimePolicy/casc-playground-baseline: deleted
 - RuntimePolicy/casc-playground-handmade: deleted
-2 destroyed
+3 destroyed
 Next: remove these files from Git, or stop the pipeline. While they remain, the next apply recreates the objects.
 ```
 

@@ -1,0 +1,50 @@
+# Playground policy 3 of 3: every runtime control the schema supports, on, in
+# enforce mode -- the strictest container policy this tool can describe.
+#
+# Safe on any tenant: enabled is false, so the policy exists but does nothing.
+# Enabled for real, it would block most workloads (only registered, compliant
+# images; no exec; no new processes outside the image): it is a reference for
+# what each control is called, not a policy to roll out.
+#
+# Left out on purpose:
+#   enableForkGuard, forkGuardProcessLimit  deprecated by Aqua (Unified Mode
+#                                           enforcers); the API keeps the field
+#                                           but it has no effect.
+#   driftPrevention.preventPrivileged       declared by the Terraform provider,
+#                                           absent from the API on the tenants
+#                                           checked so far.
+#   bypassScope                             exists only on Aqua's default
+#                                           container and host policies.
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata:
+  name: casc-playground-all-controls
+spec:
+  description: aquasec-casc playground -- every control on; safe to delete
+  enabled: false                      # inert: change only on a tenant you own
+  enforce: true
+  runtimeType: container
+  applicationScopes:
+    - Global
+  controls:
+    # Images and workloads
+    blockNonCompliantImages: true
+    blockNonCompliantWorkloads: true
+    onlyRegisteredImages: true
+    blockNonK8sContainers: true
+    # Processes
+    blockContainerExec: true
+    blockReverseShell: true
+    blockFilelessExec: true
+    noNewPrivileges: true
+    driftPrevention:
+      enabled: true
+      execLockdown: true
+      imageLockdown: true
+      execLockdownScripts: true
+      inheritToChild: true
+    # Network and behaviour
+    blockCryptocurrencyMining: true
+    enableIpReputation: true
+    enablePortScanProtection: true
+    auditBruteForceLogin: true
