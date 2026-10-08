@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aqua_casc.schema import (
+from aquasec_casc.schema import (
     ALLOW_UNKNOWN_ANNOTATION,
     Enforcement,
     RuntimeType,
@@ -295,18 +295,18 @@ def test_duplicate_kind_and_name_is_an_error(tmp_path):
 
 def test_the_tools_config_file_is_not_treated_as_a_resource(tmp_path):
     write(tmp_path, "p.yaml", MINIMAL)
-    (tmp_path / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+    (tmp_path / "aquasec-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
 
     result = load_dir(tmp_path)
     assert len(result.resources) == 1
 
 
 def test_a_config_file_name_in_a_subdirectory_is_still_loaded_as_a_resource(tmp_path):
-    """Only the root-level aqua-casc.yaml is settings; elsewhere it is just a file."""
+    """Only the root-level aquasec-casc.yaml is settings; elsewhere it is just a file."""
     write(tmp_path, "p.yaml", MINIMAL)
     sub = tmp_path / "team"
     sub.mkdir()
-    (sub / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+    (sub / "aquasec-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
 
     with pytest.raises(SchemaErrorGroup):
         load_dir(tmp_path)

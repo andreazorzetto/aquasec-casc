@@ -1,5 +1,5 @@
-# aqua-casc settings. Commit this file with the configuration.
+# aquasec-casc settings. Commit this file with the configuration.
 # The instance name is written into every object this tool manages
-# ("managed-by: aqua-casc/platform" in its description), so two repositories
+# ("managed-by: aquasec-casc/platform" in its description), so two repositories
 # on one Aqua tenant never treat each other's objects as their own.
 instance: platform

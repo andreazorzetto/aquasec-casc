@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from aqua_casc.reconcile.diff import (
+from aquasec_casc.reconcile.diff import (
     ChangeType,
     Plan,
     ReleasePolicy,

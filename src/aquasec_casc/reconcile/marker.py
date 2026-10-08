@@ -6,7 +6,7 @@ tracking label:
 
     Dev/test baseline -- no image-compliance enforcement
 
-    managed-by: aqua-casc/platform
+    managed-by: aquasec-casc/platform
 
 The instance name after the slash identifies *which* deployment of the tool
 owns the object, so two repositories or teams on one tenant never treat each

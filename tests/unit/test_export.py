@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from aqua_casc.export import export_kind, kind_filename_prefix, slugify
-from aqua_casc.reconcile import Options, Outcome, marker, reconcile
-from aqua_casc.schema import load_document, registry
+from aquasec_casc.export import export_kind, kind_filename_prefix, slugify
+from aquasec_casc.reconcile import Options, Outcome, marker, reconcile
+from aquasec_casc.schema import load_document, registry
 
 from .test_engine import FakeAqua
 
@@ -71,7 +71,7 @@ def test_shipped_policies_are_included_and_flagged(real_default):
 
 
 def test_another_instances_objects_are_skipped():
-    theirs = custom("theirs", description="x\n\nmanaged-by: aqua-casc/team-b")
+    theirs = custom("theirs", description="x\n\nmanaged-by: aquasec-casc/team-b")
     aqua = FakeAqua({"theirs": theirs, "mine": custom("mine")})
     result = export_kind(aqua, KIND, instance="platform", scope="DevTest")
     assert [e.aqua_name for e in result.exported] == ["mine"]
@@ -83,13 +83,13 @@ def test_another_instances_objects_are_skipped():
 # --------------------------------------------------------------------------- #
 
 def test_the_marker_is_stripped_from_the_exported_description():
-    aqua = FakeAqua({"mine": custom("mine", description="Mine\n\nmanaged-by: aqua-casc/platform")})
+    aqua = FakeAqua({"mine": custom("mine", description="Mine\n\nmanaged-by: aquasec-casc/platform")})
     doc = export_kind(aqua, KIND, instance="platform", scope="DevTest").exported[0].document
     assert doc["spec"]["description"] == "Mine"
 
 
 def test_an_empty_description_is_omitted():
-    aqua = FakeAqua({"mine": custom("mine", description="managed-by: aqua-casc/platform")})
+    aqua = FakeAqua({"mine": custom("mine", description="managed-by: aquasec-casc/platform")})
     doc = export_kind(aqua, KIND, instance="platform", scope="DevTest").exported[0].document
     assert "description" not in doc["spec"]
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from aqua_casc.schema import kinds
-from aqua_casc.schema.jsonschema import all_kinds, crd_for_kind, for_kind
+from aquasec_casc.schema import kinds
+from aquasec_casc.schema.jsonschema import all_kinds, crd_for_kind, for_kind
 
 
 def test_json_schema_is_produced_for_every_kind():
@@ -110,6 +110,6 @@ def test_crd_plurals_are_spelled_correctly(singular, expected):
     Getting it wrong ships 'runtimepolicys' into phase 2 and is awkward to
     change once anything references it.
     """
-    from aqua_casc.schema.jsonschema import _pluralise
+    from aquasec_casc.schema.jsonschema import _pluralise
 
     assert _pluralise(singular) == expected

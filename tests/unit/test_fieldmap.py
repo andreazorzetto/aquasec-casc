@@ -12,9 +12,9 @@ import textwrap
 
 import pytest
 
-from aqua_casc.schema import FieldMap, FieldMapping, get_path, load_document, set_path
-from aqua_casc.schema.fieldmap import MISSING, has_path
-from aqua_casc.schema.runtime_policy import FIELD_MAP
+from aquasec_casc.schema import FieldMap, FieldMapping, get_path, load_document, set_path
+from aquasec_casc.schema.fieldmap import MISSING, has_path
+from aquasec_casc.schema.runtime_policy import FIELD_MAP
 
 
 def parse(body: str):
@@ -410,7 +410,7 @@ def test_no_two_canonical_fields_write_to_the_same_api_path():
 
 def test_every_mapped_canonical_path_exists_in_the_model():
     """Catches a mapping that outlived the field it refers to."""
-    from aqua_casc.schema.runtime_policy import RuntimePolicy
+    from aquasec_casc.schema.runtime_policy import RuntimePolicy
 
     for mapping in FIELD_MAP.mappings:
         parts = mapping.canonical.split(".")

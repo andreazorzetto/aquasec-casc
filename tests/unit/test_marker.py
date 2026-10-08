@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import pytest
 
-from aqua_casc.reconcile import marker
+from aquasec_casc.reconcile import marker
 
 
 def test_compose_puts_the_marker_on_its_own_line():
     assert marker.compose("Dev/test baseline", "platform") == (
-        "Dev/test baseline\n\nmanaged-by: aqua-casc/platform"
+        "Dev/test baseline\n\nmanaged-by: aquasec-casc/platform"
     )
 
 
 def test_compose_with_no_text_is_just_the_marker():
-    assert marker.compose("", "platform") == "managed-by: aqua-casc/platform"
-    assert marker.compose(None, "platform") == "managed-by: aqua-casc/platform"
+    assert marker.compose("", "platform") == "managed-by: aquasec-casc/platform"
+    assert marker.compose(None, "platform") == "managed-by: aquasec-casc/platform"
 
 
 def test_compose_is_idempotent():
@@ -26,12 +26,12 @@ def test_compose_is_idempotent():
 
 def test_compose_replaces_another_marker_rather_than_stacking():
     other = marker.compose("text", "team-b")
-    assert marker.compose(other, "platform") == "text\n\nmanaged-by: aqua-casc/platform"
+    assert marker.compose(other, "platform") == "text\n\nmanaged-by: aquasec-casc/platform"
 
 
 def test_owner():
-    assert marker.owner("text\n\nmanaged-by: aqua-casc/platform") == "platform"
-    assert marker.owner("managed-by: aqua-casc/team-b") == "team-b"
+    assert marker.owner("text\n\nmanaged-by: aquasec-casc/platform") == "platform"
+    assert marker.owner("managed-by: aquasec-casc/team-b") == "team-b"
     assert marker.owner("plain description") is None
     assert marker.owner("") is None
     assert marker.owner(None) is None
@@ -39,26 +39,26 @@ def test_owner():
 
 def test_owner_ignores_a_marker_buried_mid_sentence():
     """Only a line of its own counts; prose that mentions the tool does not."""
-    assert marker.owner("see managed-by: aqua-casc/platform for details") is None
+    assert marker.owner("see managed-by: aquasec-casc/platform for details") is None
 
 
 def test_owner_tolerates_surrounding_whitespace_and_crlf():
-    assert marker.owner("text\r\n\r\n  managed-by: aqua-casc/platform  \r\n") == "platform"
+    assert marker.owner("text\r\n\r\n  managed-by: aquasec-casc/platform  \r\n") == "platform"
 
 
 def test_last_marker_wins():
-    assert marker.owner("managed-by: aqua-casc/a\nmanaged-by: aqua-casc/b") == "b"
+    assert marker.owner("managed-by: aquasec-casc/a\nmanaged-by: aquasec-casc/b") == "b"
 
 
 def test_strip_removes_the_marker_and_tidies():
-    assert marker.strip("Dev/test baseline\n\nmanaged-by: aqua-casc/platform") == "Dev/test baseline"
-    assert marker.strip("managed-by: aqua-casc/platform") == ""
+    assert marker.strip("Dev/test baseline\n\nmanaged-by: aquasec-casc/platform") == "Dev/test baseline"
+    assert marker.strip("managed-by: aquasec-casc/platform") == ""
     assert marker.strip("untouched text") == "untouched text"
     assert marker.strip(None) == ""
 
 
 def test_strip_keeps_other_tools_lines():
-    text = "Owner: platform team\nmanaged-by: terraform\n\nmanaged-by: aqua-casc/platform"
+    text = "Owner: platform team\nmanaged-by: terraform\n\nmanaged-by: aquasec-casc/platform"
     assert marker.strip(text) == "Owner: platform team\nmanaged-by: terraform"
 
 

@@ -24,7 +24,7 @@ YAML_SUFFIXES = (".yaml", ".yml")
 
 #: The tool's own configuration file at the root of a config directory. It is
 #: settings (the instance name), not a resource, so the loader skips it.
-CONFIG_FILENAMES = ("aqua-casc.yaml", "aqua-casc.yml")
+CONFIG_FILENAMES = ("aquasec-casc.yaml", "aquasec-casc.yml")
 
 
 @dataclass

@@ -11,9 +11,9 @@ from dataclasses import replace
 
 import pytest
 
-from aqua_casc.reconcile import ClientError, Options, Outcome, reconcile, reconcile_all
-from aqua_casc.reconcile import marker
-from aqua_casc.schema import load_document, registry
+from aquasec_casc.reconcile import ClientError, Options, Outcome, reconcile, reconcile_all
+from aquasec_casc.reconcile import marker
+from aquasec_casc.schema import load_document, registry
 
 KIND = registry.get("RuntimePolicy")
 ME = "platform"
@@ -208,7 +208,7 @@ def test_a_failed_update_is_reported_not_raised():
 # --------------------------------------------------------------------------- #
 
 def test_an_object_owned_by_another_instance_is_refused():
-    other = server(description="theirs\n\nmanaged-by: aqua-casc/team-b", block_disallowed_images=True)
+    other = server(description="theirs\n\nmanaged-by: aquasec-casc/team-b", block_disallowed_images=True)
     aqua = FakeAqua({"devtest-baseline": other})
     r = reconcile(policy(), KIND, aqua, opts())
     assert r.outcome is Outcome.BLOCKED and r.reason == "OwnedByOtherInstance"
@@ -217,7 +217,7 @@ def test_an_object_owned_by_another_instance_is_refused():
 
 
 def test_another_instances_orphan_is_never_touched():
-    aqua = FakeAqua({"theirs": server(name="theirs", description="managed-by: aqua-casc/team-b")})
+    aqua = FakeAqua({"theirs": server(name="theirs", description="managed-by: aquasec-casc/team-b")})
     summary = reconcile_all([policy()], aqua, opts())
     assert "theirs" in aqua.objects
     assert not [r for r in summary.results if r.name == "theirs"]
@@ -448,5 +448,5 @@ def test_bypass_scope_on_create_is_not_allowed_and_not_sent():
 
 
 def test_the_marker_uses_the_tools_name():
-    from aqua_casc import TOOL_NAME
+    from aquasec_casc import TOOL_NAME
     assert marker.PREFIX == f"managed-by: {TOOL_NAME}/"

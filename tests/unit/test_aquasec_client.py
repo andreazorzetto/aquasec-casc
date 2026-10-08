@@ -9,10 +9,10 @@ import requests
 from aquasec.common import get_request_defaults, reset_request_defaults, set_token_provider
 from aquasec.exceptions import ApiError, AuthenticationError
 
-from aqua_casc.client import aquasec_client as ac
-from aqua_casc.client.settings import ONPREM, SAAS_KEY, SAAS_USER, Credentials, Settings
-from aqua_casc.reconcile.client import AquaClient, ClientError
-from aqua_casc.schema import registry
+from aquasec_casc.client import aquasec_client as ac
+from aquasec_casc.client.settings import ONPREM, SAAS_KEY, SAAS_USER, Credentials, Settings
+from aquasec_casc.reconcile.client import AquaClient, ClientError
+from aquasec_casc.schema import registry
 
 PASSWORD = "hunter2-password-value"
 SECRET = "s3cr3t-api-secret-value"
@@ -111,7 +111,7 @@ def test_a_timeout_says_so(_api_auth):
 @patch.object(ac, "get_console_urls_from_token", return_value={})
 @patch.object(ac, "api_auth", return_value="tok")
 def test_no_console_url_anywhere_asks_for_aqua_url(_api_auth, _urls):
-    from aqua_casc.client.settings import ConfigError
+    from aquasec_casc.client.settings import ConfigError
     with pytest.raises(ConfigError, match="AQUA_URL"):
         ac.connect(Settings(credentials=key_creds()))
 

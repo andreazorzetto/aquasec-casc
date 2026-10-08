@@ -1,7 +1,7 @@
 """The interface the reconciler talks to.
 
 The reconciler must never import ``aquasec`` or ``requests`` directly. It talks
-to this Protocol, and ``aqua_casc.client`` provides the real implementation on
+to this Protocol, and ``aquasec_casc.client`` provides the real implementation on
 top of aquasec-lib. Three reasons that boundary is worth the indirection:
 
 * SaaS and on-prem differ (auth, console URL resolution, TLS trust). Keeping

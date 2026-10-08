@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from aqua_casc.schema.fieldmap import MISSING, get_path
-from aqua_casc.schema.runtime_policy import FIELD_MAP
+from aquasec_casc.schema.fieldmap import MISSING, get_path
+from aquasec_casc.schema.runtime_policy import FIELD_MAP
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "runtime_policy_aqua_default.json"
 

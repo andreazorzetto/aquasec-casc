@@ -74,14 +74,14 @@ example above after an `apply`:
 ```
 Dev/test baseline -- no image-compliance enforcement
 
-managed-by: aqua-casc/platform
+managed-by: aquasec-casc/platform
 ```
 
 `platform` is the instance name, from a small committed file at the root of the
 config directory:
 
 ```yaml
-# aqua-casc.yaml
+# aquasec-casc.yaml
 instance: platform
 ```
 

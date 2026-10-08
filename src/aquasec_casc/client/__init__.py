@@ -1,7 +1,7 @@
 """The aquasec-lib adapter.
 
 The only package that imports aquasec-lib. The reconciler sees it purely as an
-``AquaClient``; see ``aqua_casc.reconcile.client``.
+``AquaClient``; see ``aquasec_casc.reconcile.client``.
 """
 
 from .aquasec_client import AquasecClient, connect, sign_in, supported_kinds

@@ -38,7 +38,7 @@ wrapper, not a rewrite, and phase 1 is not throwaway.
 
 The reconciler imports nothing from the CLI, prints nothing, and never calls
 `sys.exit`. It returns result objects and the caller renders them. Only the
-client adapter (`aqua_casc/client/`) talks to aquasec-lib. Both rules are
+client adapter (`aquasec_casc/client/`) talks to aquasec-lib. Both rules are
 enforced by tests (`tests/unit/test_layering.py`), not by discipline.
 
 ---
@@ -46,7 +46,7 @@ enforced by tests (`tests/unit/test_layering.py`), not by discipline.
 ## Stateless by design
 
 > **Departure from the original brief.** The brief recommended a state file
-> committed alongside the config (`.aqua-casc/state.yaml`). The tool has no
+> committed alongside the config (`.aquasec-casc/state.yaml`). The tool has no
 > state at all: no state file, no in-cluster backend, nothing to persist or
 > commit back.
 
@@ -65,12 +65,12 @@ line:
 ```
   Dev/test baseline -- no image-compliance enforcement
 
-  managed-by: aqua-casc/platform
+  managed-by: aquasec-casc/platform
 ```
 
 - The part after the slash is the **instance name**, set in a committed
-  `aqua-casc.yaml` at the config root (`instance: platform`), overridable with
-  `--instance` or `AQUA_CASC_INSTANCE`. It is required: two repositories or
+  `aquasec-casc.yaml` at the config root (`instance: platform`), overridable with
+  `--instance` or `AQUASEC_CASC_INSTANCE`. It is required: two repositories or
   teams on one tenant must never treat each other's objects as their own.
 - The marker is part of the desired value: it is appended to the description
   before diffing, so it never shows up as drift.

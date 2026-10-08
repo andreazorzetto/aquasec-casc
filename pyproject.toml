@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aqua-casc"
+name = "aquasec-casc"
 version = "0.1.0"
 description = "Config-as-code for Aqua Security: canonical YAML schema, reconciler, and run-once CLI for GitOps workflows"
 readme = "README.md"
@@ -29,9 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-# Name is a placeholder pending Andrea's decision; it is referenced in exactly one
-# place in code (aqua_casc.cli.NAME), so changing it is a two-line edit.
-aqua-casc = "aqua_casc.cli.main:run"
+aquasec-casc = "aquasec_casc.cli.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from aqua_casc.cli.main import main
-from aqua_casc.reconcile import marker
+from aquasec_casc.cli.main import main
+from aquasec_casc.reconcile import marker
 
 from .test_engine import FakeAqua
 
@@ -31,7 +31,7 @@ POLICY = textwrap.dedent("""
 @pytest.fixture
 def repo(tmp_path) -> Path:
     (tmp_path / "policy.yaml").write_text(POLICY, encoding="utf-8")
-    (tmp_path / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+    (tmp_path / "aquasec-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
     return tmp_path
 
 
@@ -68,7 +68,7 @@ def test_validate_reports_errors_with_exit_1(tmp_path):
 
 
 def test_a_bad_config_file_is_reported(repo):
-    (repo / "aqua-casc.yaml").write_text("instance: platform\nprune: true\n", encoding="utf-8")
+    (repo / "aquasec-casc.yaml").write_text("instance: platform\nprune: true\n", encoding="utf-8")
     code, _, err = run(["validate", "-f", str(repo)])
     assert code == 1 and "unknown setting" in err
 
@@ -94,7 +94,7 @@ def test_adoption_is_shown_as_a_marker_not_as_a_description_diff(repo):
     aqua = FakeAqua({"devtest-baseline": {**marked("devtest-baseline"), "description": "console text"}})
     code, out, _ = run(["diff", "-f", str(repo)], aqua)
     assert "will be adopted" in out
-    assert "+ ownership marker (managed-by: aqua-casc/platform)" in out
+    assert "+ ownership marker (managed-by: aquasec-casc/platform)" in out
 
 
 def test_apply_exit_2_only_with_detailed_exitcode(repo):
@@ -119,7 +119,7 @@ def test_json_output_is_parseable_and_carries_the_exit_code(repo):
 
 def test_instance_flag_beats_env_beats_file(repo, monkeypatch):
     aqua = FakeAqua()
-    monkeypatch.setenv("AQUA_CASC_INSTANCE", "from-env")
+    monkeypatch.setenv("AQUASEC_CASC_INSTANCE", "from-env")
     run(["apply", "-f", str(repo)], aqua)
     assert marker.owner(aqua.objects["devtest-baseline"]["description"]) == "from-env"
 
@@ -129,10 +129,10 @@ def test_instance_flag_beats_env_beats_file(repo, monkeypatch):
 
 
 def test_no_instance_anywhere_is_an_error_that_explains_why(tmp_path, monkeypatch):
-    monkeypatch.delenv("AQUA_CASC_INSTANCE", raising=False)
+    monkeypatch.delenv("AQUASEC_CASC_INSTANCE", raising=False)
     (tmp_path / "p.yaml").write_text(POLICY, encoding="utf-8")
     code, _, err = run(["diff", "-f", str(tmp_path)], FakeAqua())
-    assert code == 1 and "No instance name" in err and "aqua-casc.yaml" in err
+    assert code == 1 and "No instance name" in err and "aquasec-casc.yaml" in err
 
 
 def test_an_invalid_instance_name_is_an_error(repo):
@@ -153,7 +153,7 @@ def test_export_writes_documents_and_the_config_file(tmp_path):
     written = yaml.safe_load((target / "runtime-policy-dev-test.yaml").read_text())
     assert written["spec"]["aquaName"] == "Dev Test"
     assert written["spec"]["description"] == "Hand made"
-    assert yaml.safe_load((target / "aqua-casc.yaml").read_text()) == {"instance": "platform"}
+    assert yaml.safe_load((target / "aquasec-casc.yaml").read_text()) == {"instance": "platform"}
     assert aqua.writes() == []                                   # export is read-only
 
 
@@ -192,7 +192,7 @@ def test_a_change_is_named_as_in_the_yaml_with_the_api_name_alongside(repo):
 
 
 def test_a_controls_enabled_gate_joins_the_controls_line(tmp_path):
-    (tmp_path / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+    (tmp_path / "aquasec-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
     (tmp_path / "p.yaml").write_text(POLICY.replace(
         "blockNonCompliantImages: false", "blockContainerExec: true"), encoding="utf-8")
     aqua = FakeAqua({"devtest-baseline": marked(

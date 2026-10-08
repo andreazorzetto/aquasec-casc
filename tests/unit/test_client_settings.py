@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from aqua_casc.client.settings import (
+from aquasec_casc.client.settings import (
     DEFAULT_METHODS,
     DEFAULT_TIMEOUT,
     ONPREM,

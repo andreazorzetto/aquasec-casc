@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "aqua_casc"
+SRC = Path(__file__).resolve().parents[2] / "src" / "aquasec_casc"
 
 RECONCILE = SRC / "reconcile"
 SCHEMA = SRC / "schema"
@@ -151,7 +151,7 @@ def test_core_layers_do_not_import_the_client_package(layer):
     offences = []
     for path in python_files(layer):
         for line, level, module in _imports(path):
-            absolute = level == 0 and module.startswith("aqua_casc.client")
+            absolute = level == 0 and module.startswith("aquasec_casc.client")
             relative_up = level >= 2 and module.split(".")[0] == "client"
             if absolute or relative_up:
                 offences.append(f"{path.relative_to(SRC)}:{line} -> {'.' * level}{module}")

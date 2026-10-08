@@ -32,7 +32,7 @@ from ..schema.loader import CONFIG_FILENAMES
 from ..schema.registry import REGISTRY
 
 CONFIG_FILE = CONFIG_FILENAMES[0]
-ENV_INSTANCE = "AQUA_CASC_INSTANCE"
+ENV_INSTANCE = "AQUASEC_CASC_INSTANCE"
 
 
 class UsageError(Exception):
@@ -198,7 +198,7 @@ def read_config_file(root: Path) -> dict:
 
 
 def resolve_instance(flag: str | None, root: Path, env=os.environ) -> str:
-    """--instance, then $AQUA_CASC_INSTANCE, then aqua-casc.yaml. Required."""
+    """--instance, then $AQUASEC_CASC_INSTANCE, then aquasec-casc.yaml. Required."""
     value = flag or env.get(ENV_INSTANCE) or read_config_file(root).get("instance")
     if not value:
         raise UsageError(
@@ -239,7 +239,7 @@ def default_connect(profile: str | None):
 def cmd_validate(args, out: Out, connect: Callable) -> int:
     path = Path(args.file)
     result = load_resources(path)
-    read_config_file(config_root(path))          # validates aqua-casc.yaml if present
+    read_config_file(config_root(path))          # validates aquasec-casc.yaml if present
     for warning in result.warnings:
         out.line(f"warning: {warning}", "yellow")
     if args.output == "json":

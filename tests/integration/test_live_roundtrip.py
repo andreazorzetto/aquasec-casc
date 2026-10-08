@@ -1,9 +1,9 @@
 """Live round trip against a real Aqua tenant, through the real CLI. Opt-in.
 
-Runs only with AQUA_CASC_LIVE=1, using AQUA_* environment variables or, if
-AQUA_CASC_PROFILE is set, that saved aquasec-lib profile:
+Runs only with AQUASEC_CASC_LIVE=1, using AQUA_* environment variables or, if
+AQUASEC_CASC_PROFILE is set, that saved aquasec-lib profile:
 
-    AQUA_CASC_LIVE=1 AQUA_CASC_PROFILE=lab pytest tests/integration -v
+    AQUASEC_CASC_LIVE=1 AQUASEC_CASC_PROFILE=lab pytest tests/integration -v
 
 Safety: it creates one throwaway runtime policy (disabled, so inert) and uses a
 random instance name, so the orphan scan can only ever match that one policy --
@@ -21,16 +21,16 @@ import secrets
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("AQUA_CASC_LIVE") != "1",
-    reason="live test: set AQUA_CASC_LIVE=1 (and credentials) to run against a tenant",
+    os.environ.get("AQUASEC_CASC_LIVE") != "1",
+    reason="live test: set AQUASEC_CASC_LIVE=1 (and credentials) to run against a tenant",
 )
 
-PROFILE = os.environ.get("AQUA_CASC_PROFILE")
+PROFILE = os.environ.get("AQUASEC_CASC_PROFILE")
 
 
 @pytest.fixture(scope="module")
 def client():
-    from aqua_casc.client import connect, settings_from_env, settings_from_profile
+    from aquasec_casc.client import connect, settings_from_env, settings_from_profile
     return connect(settings_from_profile(PROFILE) if PROFILE else settings_from_env())
 
 
@@ -39,10 +39,10 @@ def throwaway(client):
     """A pre-existing, unmarked policy -- as if someone made it in the console."""
     from aquasec import runtime_policies as rp
 
-    name = f"aqua-casc-live-{secrets.token_hex(3)}"
+    name = f"aquasec-casc-live-{secrets.token_hex(3)}"
     rp.create_runtime_policy(client.server, client.token, {
         "name": name, "runtime_type": "container", "enabled": False,
-        "description": "Made in the console (aqua-casc live test, safe to delete)",
+        "description": "Made in the console (aquasec-casc live test, safe to delete)",
         "application_scopes": ["Global"], "block_disallowed_images": False,
     })
     yield name
@@ -51,7 +51,7 @@ def throwaway(client):
 
 
 def cli(client, *argv):
-    from aqua_casc.cli.main import main
+    from aquasec_casc.cli.main import main
 
     out, err = io.StringIO(), io.StringIO()
     code = main(list(argv), stdout=out, stderr=err, connect=lambda profile: client)
@@ -61,7 +61,7 @@ def cli(client, *argv):
 def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
     from aquasec import runtime_policies as rp
 
-    from aqua_casc.reconcile import marker
+    from aquasec_casc.reconcile import marker
 
     instance = f"live-{secrets.token_hex(3)}"
     repo = tmp_path / "repo"
