@@ -20,6 +20,7 @@ from .diff import (
     flatten,
     three_way_diff,
 )
+from .destroy import DestroyOptions, destroy_all
 from .engine import Options, is_predefined, is_shipped, reconcile, reconcile_all
 from .release import ReleaseOptions, release_all
 from .result import MUTATING, PENDING, Outcome, Result, RunSummary
@@ -34,6 +35,7 @@ __all__ = [
     "AquaClient",
     "ChangeType",
     "ClientError",
+    "DestroyOptions",
     "FieldChange",
     "MUTATING",
     "NoopStateBackend",
@@ -48,6 +50,7 @@ __all__ = [
     "StateBackend",
     "StateError",
     "assert_not_ownable",
+    "destroy_all",
     "equivalent",
     "flatten",
     "is_predefined",

@@ -1,5 +1,5 @@
 # Playground policy 2 of 2: a stricter profile, and the one to delete when you
-# try Git-driven deletion (remove this file, then diff and apply).
+# try Git-driven deletion (remove this file, then plan and apply).
 #
 # Safe on any tenant: enabled is false, so the policy exists but does nothing.
 apiVersion: config.aquasec.com/v1alpha1

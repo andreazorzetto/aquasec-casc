@@ -6,11 +6,13 @@ the reconciler, so the phase 2 operator can reuse it unchanged.
 
 Exit codes:
   validate  0 valid, 1 invalid
-  diff      0 nothing to do, 1 error, 2 changes pending
+  plan      0 success, 1 error; 2 when changes are pending, only with
+            --detailed-exitcode (as terraform plan)
   apply     0 done, 1 error; 2 when something is left pending, only with
             --detailed-exitcode (Argo CD fails a sync on any non-zero exit)
   export    0 done, 1 error
   release   0 done (or nothing to release), 1 error
+  destroy   0 done (or nothing to destroy), 1 error or not confirmed
   setup, profile   0 done, 1 error
 
 Credentials: --profile, else AQUA_* variables, else the default saved profile.
@@ -29,8 +31,8 @@ import yaml
 
 from . import NAME
 from .. import export as exporting
-from ..reconcile import (Options, Outcome, ReleaseOptions, RunSummary, marker,
-                         reconcile_all, release_all)
+from ..reconcile import (DestroyOptions, Options, Outcome, ReleaseOptions, RunSummary,
+                         destroy_all, marker, reconcile_all, release_all)
 from ..reconcile.client import ClientError
 from ..schema import SchemaError, SchemaErrorGroup, load_dir
 from ..schema.loader import CONFIG_FILENAMES
@@ -86,6 +88,13 @@ _PLANNED = {
     "release": ("~", "will be released", "cyan"),
     "hand-over": ("~", "will be handed over", "cyan"),
 }
+
+#: Reads the destroy confirmation. Module-level so tests can replace it.
+ask = input
+
+
+def stdin_is_terminal() -> bool:
+    return sys.stdin.isatty()
 
 
 def _value(v) -> str:
@@ -279,7 +288,7 @@ def _reconcile(args, out: Out, connect: Callable, dry_run: bool) -> int:
                       allow_empty=args.allow_empty)
     summary = reconcile_all(result.resources, client, options)
 
-    detailed = True if dry_run else args.detailed_exitcode
+    detailed = args.detailed_exitcode
     code = summary.exit_code(detailed=detailed)
     if args.output == "json":
         out.line(render_json(summary, code))
@@ -288,7 +297,7 @@ def _reconcile(args, out: Out, connect: Callable, dry_run: bool) -> int:
     return code
 
 
-def cmd_diff(args, out, connect):
+def cmd_plan(args, out, connect):
     return _reconcile(args, out, connect, dry_run=True)
 
 
@@ -396,6 +405,81 @@ def cmd_release(args, out: Out, connect: Callable) -> int:
     return code
 
 
+def cmd_destroy(args, out: Out, connect: Callable) -> int:
+    """Show the plan, confirm, then delete -- or release what Aqua ships."""
+    if args.file:
+        path = Path(args.file)
+        instance = resolve_instance(args.instance, config_root(path))
+        loaded = load_resources(path)
+        for warning in loaded.warnings:
+            out.line(f"warning: {warning}", "yellow")
+        resources = tuple(loaded.resources)
+    else:
+        instance = resolve_instance(args.instance, Path("."))
+        resources = None
+
+    client = connect(args.profile)
+    options = DestroyOptions(instance=instance, resources=resources,
+                             names=tuple(args.name or ()), dry_run=True)
+    plan = destroy_all(client, options)
+
+    def counts(summary, dry):
+        n_del = sum(1 for r in summary.results if (r.action == "delete" and dry)
+                    or (r.outcome is Outcome.DELETED and not dry))
+        n_rel = sum(1 for r in summary.results if r.action == "release"
+                    and r.outcome is (Outcome.PLANNED if dry else Outcome.RELEASED))
+        parts = [f"{n_del} {'to destroy' if dry else 'destroyed'}"]
+        if n_rel:
+            parts.append(f"{n_rel} {'to release' if dry else 'released'}")
+        for outcome, label in ((Outcome.BLOCKED, "blocked"), (Outcome.FAILED, "failed")):
+            if summary.of(outcome):
+                parts.append(f"{len(summary.of(outcome))} {label}")
+        return n_del + n_rel, ", ".join(parts)
+
+    todo, line = counts(plan, dry=True)
+    what = f"the objects described in {args.file}" if args.file else \
+        f"every object carrying '{marker.marker(instance)}'"
+
+    if args.output == "json" and (args.dry_run or not todo):
+        out.line(render_json(plan, plan.exit_code(detailed=False), line))
+        return plan.exit_code(detailed=False)
+    if args.output != "json":
+        if not todo and not plan.blocked_or_failed():
+            where = (f"none of the objects described in {args.file} exist in Aqua" if args.file
+                     else f"no object carries '{marker.marker(instance)}'")
+            out.line(f"Nothing to destroy: {where}"
+                     + (" (with --name)." if args.name else "."), "bold")
+            return 0
+        render_text(plan, out, instance, line=line)
+    if args.dry_run or not todo:
+        return plan.exit_code(detailed=False)
+
+    if not args.yes:
+        if not stdin_is_terminal():
+            raise UsageError("destroy needs confirmation: run it in a terminal, or pass --yes.")
+        out.line(f"This deletes {what} owned by instance '{instance}'. It cannot be undone.",
+                 "red")
+        if ask(f"Type the instance name ({instance}) to confirm: ").strip() != instance:
+            out.line("Destroy cancelled. Nothing was changed.", "bold")
+            return 1
+
+    done = destroy_all(client, DestroyOptions(instance=instance, resources=resources,
+                                              names=tuple(args.name or ()), dry_run=False))
+    code = done.exit_code(detailed=False)
+    _, line = counts(done, dry=False)
+    if args.output == "json":
+        out.line(render_json(done, code, line))
+        return code
+    out.line()
+    render_text(done, out, instance, line=line)
+    if done.of(Outcome.DELETED):
+        out.line(("Next: remove these files from Git, or stop the pipeline. While they remain, "
+                  "the next apply recreates the objects.") if args.file else
+                 (f"Next: stop any pipeline that applies instance '{instance}'. Its next apply "
+                  "recreates whatever its files describe."), "dim")
+    return code
+
+
 def cmd_setup(args, out: Out, connect: Callable) -> int:
     from ..client import profiles
     return 0 if profiles.setup(args.name) else 1
@@ -490,7 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
     connection(p, ignored=True)
     p.set_defaults(handler=cmd_validate)
 
-    for name, handler, help_ in (("diff", cmd_diff, "show what apply would change (read-only)"),
+    for name, handler, help_ in (("plan", cmd_plan, "show what apply would change (read-only)"),
                                  ("apply", cmd_apply, "make Aqua match the YAML")):
         p = sub.add_parser(name, help=help_)
         common(p)
@@ -500,10 +584,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--allow-empty", action="store_true",
                        help="allow deletions even when no resources were loaded")
         p.add_argument("-v", "--verbose", action="store_true", help="also list unchanged objects")
-        if name == "apply":
-            p.add_argument("--detailed-exitcode", action="store_true",
-                           help="exit 2 when anything is left pending (drift in ReportOnly, "
-                                "blocked objects, orphans kept by --no-delete)")
+        p.add_argument("--detailed-exitcode", action="store_true",
+                       help="exit 2 when anything is (or is left) pending: changes to make, "
+                            "drift in ReportOnly, blocked objects, orphans kept by --no-delete")
         p.set_defaults(handler=handler)
 
     p = sub.add_parser("export", help="write existing Aqua configuration as YAML (read-only)")
@@ -533,6 +616,24 @@ def build_parser() -> argparse.ArgumentParser:
                    help="hand the objects over to this instance instead of releasing them")
     p.add_argument("--dry-run", action="store_true", help="show what would be released")
     p.set_defaults(handler=cmd_release)
+
+    p = sub.add_parser(
+        "destroy", help="delete what this instance manages (asks for confirmation)",
+        description=("Delete the objects the files in PATH describe -- or, without -f, every "
+                     "object carrying this instance's marker. Only objects this instance "
+                     "manages are touched; policies Aqua ships cannot be deleted and are "
+                     "released instead."))
+    common(p, needs_files=False)
+    connection(p)
+    p.add_argument("-f", "--file", metavar="PATH",
+                   help="destroy what these files describe (default: everything this "
+                        "instance manages)")
+    p.add_argument("--name", action="append", metavar="PATTERN",
+                   help="only objects whose Aqua name matches (glob; repeatable)")
+    p.add_argument("--dry-run", action="store_true", help="show what would be destroyed")
+    p.add_argument("--yes", action="store_true",
+                   help="do not ask for confirmation (for scripts)")
+    p.set_defaults(handler=cmd_destroy)
 
     p = sub.add_parser("setup", help="save credentials as a profile (interactive)",
                        description="The aquasec-lib setup wizard: asks for the connection "

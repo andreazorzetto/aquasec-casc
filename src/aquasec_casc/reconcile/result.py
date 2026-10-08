@@ -119,6 +119,9 @@ class RunSummary:
     def pending(self) -> list[Result]:
         return [r for r in self.results if r.pending]
 
+    def blocked_or_failed(self) -> list[Result]:
+        return [r for r in self.results if r.outcome in (Outcome.BLOCKED, Outcome.FAILED)]
+
     @property
     def changed(self) -> list[Result]:
         return [r for r in self.results if r.changed]
@@ -126,9 +129,9 @@ class RunSummary:
     def exit_code(self, detailed: bool = True) -> int:
         """1 on any failure. Otherwise 2 if ``detailed`` and anything is pending, else 0.
 
-        ``diff`` always runs detailed: reporting pending changes is its job.
-        ``apply`` runs detailed only with ``--detailed-exitcode``, because Argo CD
-        fails a sync on any non-zero hook exit -- a routine apply that leaves a
+        ``plan`` and ``apply`` run detailed only with ``--detailed-exitcode``, as
+        ``terraform plan`` does. For ``apply`` it matters most: Argo CD fails a
+        sync on any non-zero hook exit, and a routine apply that leaves a
         held-back orphan must not block every future sync.
         """
         if self.failed:

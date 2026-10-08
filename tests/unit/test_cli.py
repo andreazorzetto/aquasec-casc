@@ -79,20 +79,20 @@ def test_a_bad_config_file_is_reported(repo):
 
 def test_diff_exits_2_with_changes_then_apply_then_diff_exits_0(repo):
     aqua = FakeAqua()
-    code, out, _ = run(["diff", "-f", str(repo)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(repo)], aqua)
     assert code == 2 and "will be created" in out
     assert aqua.writes() == []
 
     code, out, _ = run(["apply", "-f", str(repo)], aqua)
     assert code == 0 and "1 created" in out
 
-    code, out, _ = run(["diff", "-f", str(repo)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(repo)], aqua)
     assert code == 0 and "0 created" in out
 
 
 def test_adoption_is_shown_as_a_marker_not_as_a_description_diff(repo):
     aqua = FakeAqua({"devtest-baseline": {**marked("devtest-baseline"), "description": "console text"}})
-    code, out, _ = run(["diff", "-f", str(repo)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(repo)], aqua)
     assert "will be adopted" in out
     assert "+ ownership marker (managed-by: aquasec-casc/platform)" in out
 
@@ -111,7 +111,7 @@ def test_apply_deletes_orphans_by_default(repo):
 
 
 def test_json_output_is_parseable_and_carries_the_exit_code(repo):
-    code, out, _ = run(["diff", "-f", str(repo), "--output", "json"], FakeAqua())
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(repo), "--output", "json"], FakeAqua())
     data = json.loads(out)
     assert data["exitCode"] == code == 2
     assert data["results"][0]["action"] == "create"
@@ -131,12 +131,12 @@ def test_instance_flag_beats_env_beats_file(repo, monkeypatch):
 def test_no_instance_anywhere_is_an_error_that_explains_why(tmp_path, monkeypatch):
     monkeypatch.delenv("AQUASEC_CASC_INSTANCE", raising=False)
     (tmp_path / "p.yaml").write_text(POLICY, encoding="utf-8")
-    code, _, err = run(["diff", "-f", str(tmp_path)], FakeAqua())
+    code, _, err = run(["plan", "--detailed-exitcode", "-f", str(tmp_path)], FakeAqua())
     assert code == 1 and "No instance name" in err and "aquasec-casc.yaml" in err
 
 
 def test_an_invalid_instance_name_is_an_error(repo):
-    code, _, err = run(["diff", "-f", str(repo), "--instance", "Not Valid"], FakeAqua())
+    code, _, err = run(["plan", "--detailed-exitcode", "-f", str(repo), "--instance", "Not Valid"], FakeAqua())
     assert code == 1 and "not a valid instance name" in err
 
 
@@ -166,7 +166,7 @@ def test_export_then_validate_then_apply_only_adopts(tmp_path):
     code, out, _ = run(["apply", "-f", str(target)], aqua)
     assert code == 0
     assert "1 adopted" in out and "0 updated" in out and "0 created" in out
-    code, out, _ = run(["diff", "-f", str(target)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(target)], aqua)
     assert code == 0 and "1 unchanged" in out
 
 
@@ -186,7 +186,7 @@ def test_export_refuses_to_overwrite_without_force(tmp_path):
 
 def test_a_change_is_named_as_in_the_yaml_with_the_api_name_alongside(repo):
     aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline", block_disallowed_images=True)})
-    code, out, _ = run(["diff", "-f", str(repo)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(repo)], aqua)
     assert ("! controls.blockNonCompliantImages: true -> false   "
             "(API: block_disallowed_images)") in out
 
@@ -197,7 +197,7 @@ def test_a_controls_enabled_gate_joins_the_controls_line(tmp_path):
         "blockNonCompliantImages: false", "blockContainerExec: true"), encoding="utf-8")
     aqua = FakeAqua({"devtest-baseline": marked(
         "devtest-baseline", container_exec={"enabled": False, "block_container_exec": False})})
-    code, out, _ = run(["diff", "-f", str(tmp_path)], aqua)
+    code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(tmp_path)], aqua)
     assert ("! controls.blockContainerExec: false -> true   "
             "(API: container_exec.block_container_exec + enabled)") in out
     assert "container_exec.enabled:" not in out          # not a separate line
@@ -205,7 +205,7 @@ def test_a_controls_enabled_gate_joins_the_controls_line(tmp_path):
 
 def test_json_changes_carry_both_names(repo):
     aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline", block_disallowed_images=True)})
-    change = json.loads(run(["diff", "-f", str(repo), "--output", "json"], aqua)[1])["results"][0]["changes"][0]
+    change = json.loads(run(["plan", "--detailed-exitcode", "-f", str(repo), "--output", "json"], aqua)[1])["results"][0]["changes"][0]
     assert change["field"] == "controls.blockNonCompliantImages"
     assert change["path"] == "block_disallowed_images"
 
@@ -324,3 +324,83 @@ def test_setup_runs_the_library_wizard(monkeypatch):
     seen = []
     monkeypatch.setattr(profiles, "setup", lambda name: seen.append(name) or True)
     assert run(["setup", "lab"])[0] == 0 and seen == ["lab"]
+
+
+# --------------------------------------------------------------------------- #
+# plan exit codes; destroy
+# --------------------------------------------------------------------------- #
+
+def test_plan_exits_0_with_pending_changes_unless_detailed(repo):
+    """As terraform plan: 2 only with --detailed-exitcode."""
+    code, out, _ = run(["plan", "-f", str(repo)], FakeAqua())
+    assert code == 0 and "will be created" in out
+
+
+@pytest.fixture
+def terminal(monkeypatch):
+    """Pretend stdin is a terminal and answer the confirmation prompt."""
+    import aquasec_casc.cli.main as cli_main
+
+    answers = []
+    monkeypatch.setattr(cli_main, "stdin_is_terminal", lambda: True)
+    monkeypatch.setattr(cli_main, "ask", lambda prompt: answers.pop(0))
+    return answers
+
+
+def test_destroy_dry_run_shows_the_plan_and_writes_nothing(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    code, out, _ = run(["destroy", "-f", str(repo), "--dry-run"], aqua)
+    assert code == 0 and "will be deleted" in out and "1 to destroy" in out
+    assert aqua.writes() == []
+
+
+def test_destroy_with_yes(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    code, out, _ = run(["destroy", "-f", str(repo), "--yes"], aqua)
+    assert code == 0 and "1 destroyed" in out and "recreates the objects" in out
+    assert aqua.objects == {}
+
+
+def test_destroy_without_a_terminal_needs_yes(repo, monkeypatch):
+    import aquasec_casc.cli.main as cli_main
+    monkeypatch.setattr(cli_main, "stdin_is_terminal", lambda: False)
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    code, _, err = run(["destroy", "-f", str(repo)], aqua)
+    assert code == 1 and "--yes" in err
+    assert aqua.writes() == []
+
+
+def test_destroy_is_cancelled_unless_the_instance_name_is_typed(repo, terminal):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    terminal.append("yes")
+    code, out, _ = run(["destroy", "-f", str(repo)], aqua)
+    assert code == 1 and "cancelled" in out and aqua.writes() == []
+
+    terminal.append("platform")
+    code, out, _ = run(["destroy", "-f", str(repo)], aqua)
+    assert code == 0 and "1 destroyed" in out and aqua.objects == {}
+
+
+def test_destroy_without_files_takes_everything_this_instance_marks(repo, terminal):
+    aqua = FakeAqua({"a": marked("a"), "b": marked("b"), "console": {"name": "console"}})
+    terminal.append("platform")
+    code, out, _ = run(["destroy", "--instance", "platform"], aqua)
+    assert code == 0 and "2 destroyed" in out and set(aqua.objects) == {"console"}
+
+
+def test_destroy_with_nothing_to_do_does_not_ask(repo, terminal):
+    code, out, _ = run(["destroy", "-f", str(repo)], FakeAqua())
+    assert code == 0 and terminal == []
+
+
+def test_destroy_json(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    code, out, _ = run(["destroy", "-f", str(repo), "--yes", "--output", "json"], aqua)
+    data = json.loads(out)
+    assert code == 0 and data["summary"] == "1 destroyed"
+    assert data["results"][0]["outcome"] == "deleted"
+
+
+def test_destroy_says_when_there_is_nothing_to_do(repo):
+    code, out, _ = run(["destroy", "-f", str(repo), "--yes"], FakeAqua())
+    assert code == 0 and "Nothing to destroy: none of the objects described" in out

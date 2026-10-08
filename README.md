@@ -4,7 +4,7 @@ Config-as-code for Aqua Security: describe Aqua configuration in YAML, keep it
 in Git, and make Aqua match it.
 
 ```
-YAML in Git  ──►  aquasec-casc diff / apply  ──►  Aqua REST API
+YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
 ```
 
 - **Run once and exit.** From a laptop, a CI job, or an Argo CD PreSync hook.
@@ -50,10 +50,11 @@ folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 | Command | |
 |---|---|
 | `validate -f DIR` | Check the YAML against the schema. No network. |
-| `diff -f DIR` | Show what `apply` would change. Read-only. Exit 2 if anything would. |
+| `plan -f DIR` | Show what `apply` would change. Read-only. |
 | `apply -f DIR` | Make Aqua match the YAML. `--no-delete` holds back deletions. |
 | `export --scope S -o DIR` | Write existing configuration as YAML, ready to adopt. Read-only. |
 | `release` | Stop managing objects without deleting them; `--to` hands them over. |
+| `destroy [-f DIR]` | Delete what the files describe, or everything this instance manages. Asks first. |
 | `setup`, `profile` | Save and manage credential profiles. |
 
 ## Documentation

@@ -173,7 +173,7 @@ never delete, such as a first rollout or a read-mostly pipeline. Under
 - Only objects carrying **this instance's** marker are ever deleted — never
   another instance's, never an unmarked console object.
 - **Aqua-shipped policies are never deleted.** They are reported and kept.
-- `diff` lists every pending deletion.
+- `plan` lists every pending deletion.
 - Within one apply, **all creates and updates run before any delete**, so a
   Git-side rename never leaves a moment with neither policy in place.
 - **A run that loads no resources at all deletes nothing**, unless
@@ -213,6 +213,14 @@ a renamed instance) without an unmanaged moment in between.
   the old instance's runs report the objects as blocked until its files go.
 - On runtime policies the API rewrites `author` on every edit, so released
   policies still show the tool's identity as author.
+
+**`destroy` is the other way out**, for when the objects should go too:
+`destroy -f DIR` deletes what those files describe, plain `destroy` everything
+carrying this instance's marker. The same ownership rule applies -- an object
+without this instance's marker is reported as blocked, never deleted -- and a
+policy Aqua ships, which cannot be deleted, is released instead. It shows the
+plan and asks for the instance name to be typed (`--yes` for scripts), because
+it is the one command that deletes without a change in Git.
 
 ---
 
@@ -280,11 +288,13 @@ name, which Aqua names often are not ("Aqua default runtime policy"), so
 
 ```
   validate   0 valid      1 invalid
-  diff       0 no changes 1 error     2 changes pending (incl. deletions)
+  plan       0 success    1 error     2 changes pending (incl. deletions) -- only
+                                        with --detailed-exitcode
   apply      0 done       1 error     2 something left pending -- only with
                                         --detailed-exitcode
   export     0 done       1 error
   release    0 done       1 error       (also 0 when there is nothing to release)
+  destroy    0 done       1 error, or not confirmed
 ```
 
 `apply` exits 0 on success by default because Argo CD fails a sync on any

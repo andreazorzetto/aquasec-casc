@@ -55,22 +55,21 @@ Try a typo (`enforcee: false`) to see the error: the file, the path, and a
 "did you mean". Validation rejects unknown fields because Aqua ignores them --
 a typo'd control would otherwise be accepted and silently do nothing.
 
-## 2. Diff, then apply
+## 2. Plan, then apply
 
 ```
-$ aquasec-casc diff -f /tmp/playground
+$ aquasec-casc plan -f /tmp/playground
 + RuntimePolicy/casc-playground-baseline: will be created
 + RuntimePolicy/casc-playground-strict: will be created
 0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 2 planned
-                                                            # exit code 2: changes pending
 
 $ aquasec-casc apply -f /tmp/playground
 + RuntimePolicy/casc-playground-baseline: created
 + RuntimePolicy/casc-playground-strict: created
 0 unchanged, 2 created, 0 updated, 0 adopted, 0 deleted
 
-$ aquasec-casc diff -f /tmp/playground
-2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted    # exit code 0: in sync
+$ aquasec-casc plan -f /tmp/playground
+2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
 ```
 
 In the console (Policies → Runtime Policies), each description now ends with
@@ -82,7 +81,7 @@ policy is its own -- there is no state file.
 In `runtime-policy-baseline.yaml`, set `enforce: true`:
 
 ```
-$ aquasec-casc diff -f /tmp/playground
+$ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: will be updated
     ! enforce: false -> true
 1 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
@@ -92,7 +91,7 @@ $ aquasec-casc apply -f /tmp/playground
     ! enforce: false -> true
 ```
 
-One line changed in Git, one line in the diff.
+One line changed in Git, one line in the plan.
 
 ## 4. Change it in the console: drift
 
@@ -100,7 +99,7 @@ In the console, open `casc-playground-strict` and switch off **Block fileless
 execution**. Save.
 
 ```
-$ aquasec-casc diff -f /tmp/playground
+$ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: will be updated
     ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
 
@@ -112,7 +111,7 @@ $ aquasec-casc apply -f /tmp/playground
 Git wins. The YAML name leads, the API name is in brackets for anyone checking
 the console or the logs.
 
-Now change a setting the YAML does **not** mention, e.g. **Fork guard**. `diff`
+Now change a setting the YAML does **not** mention, e.g. **Fork guard**. `plan`
 stays at `2 unchanged`: fields the YAML leaves out belong to the console.
 
 ## 5. Report only
@@ -134,7 +133,7 @@ Remove the line and apply again to put it back.
 ```
 $ rm /tmp/playground/runtime-policy-strict.yaml
 
-$ aquasec-casc diff -f /tmp/playground
+$ aquasec-casc plan -f /tmp/playground
 - RuntimePolicy/casc-playground-strict: will be deleted
     no file describes it; will be deleted
 
@@ -159,7 +158,7 @@ $ aquasec-casc export --scope Global --name casc-playground-handmade -o /tmp/pla
 + runtime-policy-casc-playground-handmade.yaml  ('casc-playground-handmade')
 1 exported, 0 skipped -> /tmp/playground
 
-$ aquasec-casc diff -f /tmp/playground
+$ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-handmade: will be adopted
     + ownership marker (managed-by: aquasec-casc/playground)
 
@@ -191,31 +190,38 @@ $ aquasec-casc release -f /tmp/playground
 Next: remove these objects' files from Git, or stop the pipeline. While they remain, the next apply adopts the objects again.
 ```
 
-The policies stay exactly as they are, minus the marker. Running `diff` now
+The policies stay exactly as they are, minus the marker. Running `plan` now
 shows both as `will be adopted` -- which is the warning above in action.
 `--to <instance>` hands them to another instance instead.
 
 ## 9. Clean up
 
-Adopt them again, then delete them the Git way:
+`destroy` deletes what the files describe -- only objects this instance
+manages -- after showing the plan and asking you to type the instance name:
 
 ```
 $ aquasec-casc apply -f /tmp/playground            # re-adopts both
-$ rm /tmp/playground/runtime-policy-*.yaml
+$ aquasec-casc destroy -f /tmp/playground
+- RuntimePolicy/casc-playground-baseline: will be deleted
+- RuntimePolicy/casc-playground-handmade: will be deleted
+2 to destroy
+This deletes the objects described in /tmp/playground owned by instance 'playground'. It cannot be undone.
+Type the instance name (playground) to confirm: playground
 
-$ aquasec-casc apply -f /tmp/playground
-? RuntimePolicy/casc-playground-baseline: orphaned
-    not deleted: no resources were loaded at all, which is more likely a wrong
-    path or an empty mount than an instruction to delete everything. Pass
-    --allow-empty if it is intended.
-
-$ aquasec-casc apply -f /tmp/playground --allow-empty
 - RuntimePolicy/casc-playground-baseline: deleted
 - RuntimePolicy/casc-playground-handmade: deleted
+2 destroyed
+Next: remove these files from Git, or stop the pipeline. While they remain, the next apply recreates the objects.
 ```
 
-The empty-folder guard is the last safety net: a run that loads nothing deletes
-nothing unless told to.
+Without `-f`, `destroy` takes everything carrying this instance's marker,
+files or not. `--dry-run` shows the plan only; `--yes` skips the question, for
+scripts. Policies Aqua ships cannot be deleted, so `destroy` releases them
+instead.
+
+The Git way works too: remove the files and `apply`. A run that loads no files
+at all deletes nothing unless you add `--allow-empty` -- the last safety net
+against a wrong path or an empty mount.
 
 ---
 
@@ -224,9 +230,9 @@ nothing unless told to.
 | | |
 |---|---|
 | `--output json` | machine-readable results, every command |
-| `-v` | `diff`/`apply` also list unchanged objects |
+| `-v` | `plan`/`apply` also list unchanged objects |
 | `--instance NAME` | override `aquasec-casc.yaml` |
-| `--detailed-exitcode` | `apply` exits 2 when something is left pending |
+| `--detailed-exitcode` | `plan`/`apply` exit 2 when changes are (left) pending, for scripts |
 
-Exit codes: `diff` 0 in sync, 1 error, 2 changes pending; `apply` 0 done, 1
-error. See [architecture.md](architecture.md) for the reasoning behind each rule.
+Exit codes, as Terraform: 0 success, 1 error; `plan` and `apply` exit 2 when
+changes are pending only with `--detailed-exitcode`. See [architecture.md](architecture.md) for the reasoning behind each rule.

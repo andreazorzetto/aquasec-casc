@@ -79,7 +79,7 @@ def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
     assert server()["description"] == original["description"]      # export is read-only
 
     # 2. diff: only the ownership marker would change
-    code, out = cli(client, "diff", "-f", str(repo))
+    code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo))
     assert code == 2, out
     assert "will be adopted" in out and "+ ownership marker" in out
 
@@ -94,7 +94,7 @@ def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
         assert after.get(key) == original.get(key), key
 
     # 4. apply again: a true no-op
-    code, out = cli(client, "diff", "-f", str(repo))
+    code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo))
     assert code == 0 and "1 unchanged" in out, out
 
     # 5. someone flips a control in the console; diff sees exactly that; apply reverts
@@ -102,7 +102,7 @@ def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
     tampered["block_disallowed_images"] = True
     rp.update_runtime_policy(client.server, client.token, throwaway, tampered)
 
-    code, out = cli(client, "diff", "-f", str(repo), "--output", "json")
+    code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo), "--output", "json")
     assert code == 2
     import json
     changes = json.loads(out)["results"][0]["changes"]
@@ -155,7 +155,7 @@ def test_adopt_hand_over_release_then_nothing_is_deleted(client, throwaway, tmp_
     code, out = cli(client, "release", "-f", str(repo), "--name", throwaway, "--to", second)
     assert code == 0 and "1 handed over" in out, out
     assert marker.owner(server()["description"]) == second
-    code, out = cli(client, "diff", "-f", str(repo))
+    code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo))
     assert code == 2 and "blocked" in out, out
 
     # release from the new owner: the description is back to the original text
@@ -173,3 +173,33 @@ def test_adopt_hand_over_release_then_nothing_is_deleted(client, throwaway, tmp_
         code, out = cli(client, "apply", "-f", str(repo), "--allow-empty", "--instance", instance)
         assert code == 0 and "0 deleted" in out, out
     assert server() is not None
+
+
+def test_destroy_refuses_unmanaged_then_deletes_managed(client, throwaway, tmp_path):
+    from aquasec import runtime_policies as rp
+
+    instance = f"live-{secrets.token_hex(3)}"
+    repo = tmp_path / "repo"
+
+    def server():
+        return rp.get_runtime_policy(client.server, client.token, throwaway)
+
+    code, out = cli(client, "export", "--scope", "Global", "--name", throwaway,
+                    "-o", str(repo), "--instance", instance)
+    assert code == 0, out
+
+    # not adopted yet: the file names it, but the tool does not own it
+    code, out = cli(client, "destroy", "-f", str(repo), "--yes")
+    assert code == 0 and "1 blocked" in out and "no ownership marker" in out, out
+    assert server() is not None
+
+    code, out = cli(client, "apply", "-f", str(repo))
+    assert code == 0 and "1 adopted" in out, out
+
+    code, out = cli(client, "destroy", "-f", str(repo), "--dry-run")
+    assert code == 0 and "1 to destroy" in out, out
+    assert server() is not None
+
+    code, out = cli(client, "destroy", "-f", str(repo), "--yes")
+    assert code == 0 and "1 destroyed" in out, out
+    assert server() is None
