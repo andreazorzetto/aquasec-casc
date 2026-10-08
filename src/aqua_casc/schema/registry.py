@@ -7,7 +7,7 @@ generator all read this table.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Type
 
 from .base import Resource
@@ -46,6 +46,11 @@ class KindDef:
     because no API field identifies them, and matched only together with
     ``builtin_field``, so a custom policy reusing the name is not affected."""
 
+    only_on: dict[str, frozenset[str]] = field(default_factory=dict)
+    """API paths that exist only on particular system objects, by name. Setting
+    one anywhere else is reported as not allowed and not sent -- matching what
+    the console offers."""
+
     predefined_immutable: tuple[str, ...] = ()
     """API paths that cannot change on a predefined object. A desired change is
     reported as not allowed instead of being sent."""
@@ -76,6 +81,12 @@ REGISTRY: dict[str, KindDef] = {
             "Aqua default function runtime policy",
         }),
         predefined_immutable=("application_scopes",),
+        # The console offers Bypass Scope only on these two. Every policy carries
+        # bypass_scope in the API (disabled), so it is exported only for them.
+        only_on={"bypass_scope": frozenset({
+            "Aqua default runtime policy",
+            "Aqua default host runtime policy",
+        })},
     ),
 }
 

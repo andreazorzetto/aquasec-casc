@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import re
 
-TOOL = "aqua-casc"
+from .. import TOOL_NAME
+
+TOOL = TOOL_NAME
 PREFIX = f"managed-by: {TOOL}/"
 
 #: Instance names are DNS-1123 labels: short, lowercase, unambiguous in a URL,

@@ -113,7 +113,15 @@ def export_kind(
                 name, f"managed by another instance ({marker.PREFIX}{found})"))
             continue
 
-        spec = _prune(kind.field_map.from_api(full).get("spec", {}))
+        api_view = dict(full)
+        shipped = bool(kind.builtin_field and full.get(kind.builtin_field) is True)
+        for prefix, allowed in kind.only_on.items():
+            # Every object may carry the field in the API (disabled); writing it
+            # into YAML for an object that cannot have it would make the first
+            # apply report it as not allowed.
+            if not (shipped and name in allowed):
+                api_view.pop(prefix.split(".")[0], None)
+        spec = _prune(kind.field_map.from_api(api_view).get("spec", {}))
         text = marker.strip(full.get("description"))
         if text:
             spec["description"] = text
@@ -148,7 +156,7 @@ def export_kind(
             aqua_name=name,
             filename=f"{kind_filename_prefix(kind.kind)}-{slug}.yaml",
             document=document,
-            shipped=bool(kind.builtin_field and full.get(kind.builtin_field) is True),
+            shipped=shipped,
         ))
 
     return result

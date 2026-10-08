@@ -170,6 +170,17 @@ class FieldMap:
                 owned.extend(m.also_set)
         return owned
 
+    def for_api_path(self, api_path: str) -> tuple[FieldMapping | None, bool]:
+        """The mapping an API path belongs to, and whether it is that mapping's
+        ``also_set`` gate rather than its primary path."""
+        for m in self.mappings:
+            if m.api == api_path:
+                return m, False
+        for m in self.mappings:
+            if api_path in m.also_set:
+                return m, True
+        return None, False
+
     def resolve_api_path(self, api_object: dict, canonical_path: str) -> str | None:
         """Which API path this tenant actually uses for a canonical field.
 

@@ -80,11 +80,50 @@ _PLANNED = {
 }
 
 
-def _change_line(change, instance: str) -> str:
-    """One field change. A change that only adds the marker says so plainly."""
-    if change.path == "description" and marker.strip(change.before) == marker.strip(change.after):
-        return f"+ ownership marker ({marker.marker(instance)})"
-    return change.render()
+def _value(v) -> str:
+    """A value as it would appear in the YAML: true/false, quoted strings, lists."""
+    return json.dumps(v, ensure_ascii=False, default=str)
+
+
+def change_lines(result, instance: str) -> list[str]:
+    """A result's field changes in the vocabulary the user edited.
+
+    The YAML name leads (``controls.blockNonCompliantImages``), with the API
+    name in brackets for anyone checking the console or logs. A control's
+    ``enabled`` gate, written alongside it, joins the control's own line rather
+    than appearing as a separate change nobody asked for.
+    """
+    kind = REGISTRY.get(result.kind)
+    field_map = kind.field_map if kind else None
+    changed = {c.path for c in result.plan.changes}
+    lines = []
+
+    for change in result.plan.changes:
+        if change.path == "description" and marker.strip(change.before) == marker.strip(change.after):
+            lines.append(f"+ ownership marker ({marker.marker(instance)})")
+            continue
+
+        mapping, is_gate = field_map.for_api_path(change.path) if field_map else (None, False)
+        if is_gate and mapping.api in changed:
+            continue                                   # shown on the control's line
+
+        name = mapping.canonical.removeprefix("spec.") if mapping else change.path
+        if mapping and not is_gate:
+            api = change.path
+            gates = [g for g in mapping.also_set if g in changed]
+            if gates:
+                api += " + " + ", ".join(g.rsplit(".", 1)[-1] for g in gates)
+        else:
+            api = change.path
+
+        if change.change.value == "add":
+            text = f"+ {name}: {_value(change.after)}"
+        else:
+            text = f"! {name}: {_value(change.before)} -> {_value(change.after)}"
+        if api != name:
+            text += f"   (API: {api})"
+        lines.append(text)
+    return lines
 
 
 def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = False) -> None:
@@ -97,8 +136,8 @@ def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = Fa
         shown = ref if (r.aqua_name in (None, r.name)) else f"{ref} ({r.aqua_name!r})"
         out.line(f"{sym} {shown}: {label}", colour)
         if r.plan and r.outcome is not Outcome.CREATED and r.action != "create":
-            for change in r.plan.changes:
-                out.line(f"    {_change_line(change, instance)}")
+            for text in change_lines(r, instance):
+                out.line(f"    {text}")
         for item in r.not_allowed:
             out.line(f"    not allowed: {item}", "red")
         if r.message:
@@ -110,8 +149,14 @@ def render_json(summary: RunSummary, exit_code: int) -> str:
     def plan_json(r):
         if not r.plan:
             return []
-        return [{"path": c.path, "change": c.change.value, "before": c.before, "after": c.after}
-                for c in r.plan.changes]
+        kind = REGISTRY.get(r.kind)
+        out = []
+        for c in r.plan.changes:
+            mapping, _ = kind.field_map.for_api_path(c.path) if kind else (None, False)
+            out.append({"field": mapping.canonical.removeprefix("spec.") if mapping else c.path,
+                        "path": c.path, "change": c.change.value,
+                        "before": c.before, "after": c.after})
+        return out
 
     return json.dumps({
         "summary": summary.summary_line(),

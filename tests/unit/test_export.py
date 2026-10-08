@@ -147,3 +147,19 @@ def test_applying_an_export_of_a_real_policy_only_adds_the_marker(real_default):
 
     second = reconcile(resource, KIND, aqua, options)
     assert second.outcome is Outcome.IN_SYNC
+
+
+def test_bypass_scope_is_exported_only_where_it_can_be_managed(real_default):
+    """Every policy has bypass_scope in the API; only two defaults may manage it."""
+    hipaa = {**custom("HIPAA", ["Global"]), "is_ootb_policy": True,
+             "bypass_scope": {"enabled": False, "scope": {"expression": "", "variables": []}}}
+    mine = {**custom("mine", ["Global"]),
+            "bypass_scope": {"enabled": False, "scope": {"expression": "", "variables": None}}}
+    aqua = FakeAqua({real_default["name"]: real_default, "HIPAA": hipaa, "mine": mine})
+    docs = {e.aqua_name: e.document for e in
+            export_kind(aqua, KIND, instance="platform", scope="Global").exported}
+
+    bypass = docs["Aqua default runtime policy"]["spec"]["controls"]["bypassScope"]
+    assert bypass["enabled"] is True and bypass["variables"]          # the shipped exemptions
+    assert "bypassScope" not in docs["HIPAA"]["spec"].get("controls", {})
+    assert "bypassScope" not in docs["mine"]["spec"].get("controls", {})

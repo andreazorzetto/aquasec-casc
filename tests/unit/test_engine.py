@@ -391,3 +391,62 @@ def test_summary_line_always_shows_the_core_counts():
     aqua = FakeAqua({"devtest-baseline": server(description="x")})
     line = reconcile_all([policy()], aqua, opts()).summary_line()
     assert "0 unchanged" in line and "1 adopted" in line and "0 deleted" in line
+
+
+# --------------------------------------------------------------------------- #
+# The real registry: defaults lock scope; Bypass Scope only on two defaults
+# --------------------------------------------------------------------------- #
+
+BYPASS = {"enabled": True, "expression": "v1",
+          "variables": [{"attribute": "container.label", "name": "team", "value": "infra"}]}
+
+
+def default_policy(name, **extra):
+    return server(name=name, is_ootb_policy=True, application_scopes=["Global"],
+                  bypass_scope={"enabled": False, "scope": {"expression": "", "variables": []}},
+                  **extra)
+
+
+def test_the_registry_locks_scope_on_the_three_defaults():
+    for name in ("Aqua default runtime policy", "Aqua default host runtime policy",
+                 "Aqua default function runtime policy"):
+        aqua = FakeAqua({name: default_policy(name)})
+        r = reconcile(policy(name="d", aquaName=name, applicationScopes=["DevTest"]), KIND, aqua, opts())
+        assert r.not_allowed and "default policy" in r.not_allowed[0], name
+        assert aqua.objects[name]["application_scopes"] == ["Global"]
+
+
+@pytest.mark.parametrize("name", ["Aqua default runtime policy", "Aqua default host runtime policy"])
+def test_bypass_scope_is_managed_on_the_two_defaults(name):
+    aqua = FakeAqua({name: default_policy(name)})
+    r = reconcile(policy(name="d", aquaName=name, applicationScopes=["Global"],
+                         controls={"bypassScope": BYPASS}), KIND, aqua, opts())
+    assert not r.not_allowed
+    stored = aqua.objects[name]["bypass_scope"]
+    assert stored["enabled"] is True and stored["scope"]["expression"] == "v1"
+
+
+@pytest.mark.parametrize("name,obj", [
+    ("Aqua default function runtime policy",
+     default_policy("Aqua default function runtime policy")),           # a default, but not these
+    ("HIPAA", default_policy("HIPAA")),                                  # a system policy
+    ("devtest-baseline", server()),                                      # a custom policy
+])
+def test_bypass_scope_anywhere_else_is_not_allowed_and_not_sent(name, obj):
+    aqua = FakeAqua({name: obj})
+    r = reconcile(policy(name="p", aquaName=name, applicationScopes=["Global"],
+                         controls={"bypassScope": BYPASS}), KIND, aqua, opts())
+    assert any("bypass_scope" in n and "only available on" in n for n in r.not_allowed)
+    assert (aqua.objects[name].get("bypass_scope") or {}).get("enabled") is not True
+
+
+def test_bypass_scope_on_create_is_not_allowed_and_not_sent():
+    aqua = FakeAqua()
+    r = reconcile(policy(controls={"bypassScope": BYPASS}), KIND, aqua, opts())
+    assert r.outcome is Outcome.CREATED and r.not_allowed
+    assert "bypass_scope" not in aqua.objects["devtest-baseline"]
+
+
+def test_the_marker_uses_the_tools_name():
+    from aqua_casc import TOOL_NAME
+    assert marker.PREFIX == f"managed-by: {TOOL_NAME}/"

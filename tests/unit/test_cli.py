@@ -178,3 +178,33 @@ def test_export_refuses_to_overwrite_without_force(tmp_path):
     code, _, err = run(args, aqua)
     assert code == 1 and "--force" in err
     assert run(args + ["--force"], aqua)[0] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Diff lines speak the YAML's vocabulary
+# --------------------------------------------------------------------------- #
+
+def test_a_change_is_named_as_in_the_yaml_with_the_api_name_alongside(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline", block_disallowed_images=True)})
+    code, out, _ = run(["diff", "-f", str(repo)], aqua)
+    assert ("! controls.blockNonCompliantImages: true -> false   "
+            "(API: block_disallowed_images)") in out
+
+
+def test_a_controls_enabled_gate_joins_the_controls_line(tmp_path):
+    (tmp_path / "aqua-casc.yaml").write_text("instance: platform\n", encoding="utf-8")
+    (tmp_path / "p.yaml").write_text(POLICY.replace(
+        "blockNonCompliantImages: false", "blockContainerExec: true"), encoding="utf-8")
+    aqua = FakeAqua({"devtest-baseline": marked(
+        "devtest-baseline", container_exec={"enabled": False, "block_container_exec": False})})
+    code, out, _ = run(["diff", "-f", str(tmp_path)], aqua)
+    assert ("! controls.blockContainerExec: false -> true   "
+            "(API: container_exec.block_container_exec + enabled)") in out
+    assert "container_exec.enabled:" not in out          # not a separate line
+
+
+def test_json_changes_carry_both_names(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline", block_disallowed_images=True)})
+    change = json.loads(run(["diff", "-f", str(repo), "--output", "json"], aqua)[1])["results"][0]["changes"][0]
+    assert change["field"] == "controls.blockNonCompliantImages"
+    assert change["path"] == "block_disallowed_images"

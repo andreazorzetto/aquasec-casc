@@ -70,6 +70,33 @@ def _touches(path: str, prefixes: Iterable[str]) -> bool:
     return any(path == p or path.startswith(p + ".") for p in prefixes)
 
 
+def _withheld(kind: KindDef, obj: dict | None, name: str, path: str) -> str | None:
+    """Why Aqua would refuse a change to ``path`` on this object, or None.
+
+    Two rules, both matching what the console allows:
+    * a predefined object's locked fields (the defaults' scope);
+    * fields that exist only on particular system objects (Bypass Scope).
+    """
+    if is_predefined(kind, obj, name) and _touches(path, kind.predefined_immutable):
+        return "cannot change on a default policy"
+    for prefix, names in kind.only_on.items():
+        if _touches(path, (prefix,)) and not (is_shipped(kind, obj) and name in names):
+            return "only available on " + " and ".join(repr(n) for n in sorted(names))
+    return None
+
+
+def _split(kind: KindDef, obj: dict | None, name: str, plan: Plan) -> tuple[Plan, list[str]]:
+    """The plan minus changes Aqua would refuse, and a note for each one."""
+    kept, refused = [], []
+    for change in plan.changes:
+        why = _withheld(kind, obj, name, change.path)
+        if why:
+            refused.append(f"{change.path}: {change.before!r} -> {change.after!r} ({why}; not sent)")
+        else:
+            kept.append(change)
+    return Plan(changes=kept, release_policy=plan.release_policy), refused
+
+
 # --------------------------------------------------------------------------- #
 # One resource
 # --------------------------------------------------------------------------- #
@@ -124,12 +151,14 @@ def reconcile(
     if actual is None:
         body = dict(desired)
         body[kind.name_field] = name
-        plan = three_way_diff(desired=body, actual={})
+        plan, not_allowed = _split(kind, None, name, three_way_diff(desired=body, actual={}))
+        body = plan.apply_to({})
         if options.dry_run:
             return Result(**common, outcome=Outcome.PLANNED, action="create", plan=plan,
-                          reason="CreateRequired")
+                          not_allowed=not_allowed, reason="CreateRequired")
         if report_only:
             return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, reason="Missing",
+                          not_allowed=not_allowed,
                           message="does not exist in Aqua; ReportOnly, so not created")
         try:
             created = client.create(kind, body)
@@ -137,7 +166,7 @@ def reconcile(
             return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="CreateFailed")
         state.record(resource.kind, resource.metadata.name, aqua_name=name,
                      aqua_id=_aqua_id(created))
-        return Result(**common, outcome=Outcome.CREATED, plan=plan)
+        return Result(**common, outcome=Outcome.CREATED, plan=plan, not_allowed=not_allowed)
 
     # ---- exists: whose is it? ----------------------------------------------
     adopting = False
@@ -152,21 +181,8 @@ def reconcile(
             )
         adopting = found is None
 
-    plan = three_way_diff(desired=desired, actual=actual)
-
-    # ---- predefined objects: some fields cannot change -----------------------
-    not_allowed: list[str] = []
-    if is_predefined(kind, actual, name):
-        kept = []
-        for change in plan.changes:
-            if _touches(change.path, kind.predefined_immutable):
-                not_allowed.append(
-                    f"{change.path}: {change.before!r} -> {change.after!r} "
-                    "(cannot change on a predefined policy; not sent)"
-                )
-            else:
-                kept.append(change)
-        plan = Plan(changes=kept, release_policy=plan.release_policy)
+    # Changes Aqua would refuse are reported, not sent; the rest still applies.
+    plan, not_allowed = _split(kind, actual, name, three_way_diff(desired=desired, actual=actual))
 
     if plan.is_empty():
         return Result(**common, outcome=Outcome.IN_SYNC, plan=plan, not_allowed=not_allowed)

@@ -198,6 +198,12 @@ Aqua ships runtime policies of its own -- 18 on the lab tenant -- flagged
 - **The flag survives edits. `author` does not**: an API edit rewrites it to the
   editing identity, so `author` cannot identify built-ins.
 
+- **Bypass Scope exists only on the default container and host policies**, as in
+  the console (`controls.bypassScope`). The default container policy ships with
+  it on, exempting Aqua's own components, `kube-system` and pod sandboxes.
+  Setting it anywhere else is reported as not allowed and not sent; `export`
+  writes it only for those two, so adopting a default keeps its exemptions.
+
 So built-ins are **adopt-only**: never created or deleted by the tool, otherwise
 managed like any policy, marker included. `export` includes them -- the default
 policy is usually the first one a customer changes.

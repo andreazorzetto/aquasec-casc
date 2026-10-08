@@ -56,6 +56,29 @@ class DriftPrevention(StrictModel):
     """
 
 
+class ScopeVariable(StrictModel):
+    """One term of a scope expression, e.g. a container label match."""
+
+    attribute: str
+    value: str
+    name: str | None = None
+
+
+class BypassScope(StrictModel):
+    """Workloads exempt from this policy.
+
+    Only the default container and host runtime policies have it -- the same as
+    in the console. The default container policy ships with it on, exempting
+    Aqua's own components, ``kube-system`` and pod sandboxes.
+    """
+
+    enabled: bool = False
+    expression: str = ""
+    """How the variables combine, e.g. ``v1 || v2 || v3``."""
+
+    variables: list[ScopeVariable] = Field(default_factory=list)
+
+
 class Controls(StrictModel):
     """The security controls a runtime policy turns on or off.
 
@@ -105,6 +128,11 @@ class Controls(StrictModel):
     blockNonK8sContainers: bool | None = None
     noNewPrivileges: bool | None = None
     auditBruteForceLogin: bool | None = None
+
+    # --- default policies only ---------------------------------------------------
+    bypassScope: BypassScope | None = None
+    """Only on "Aqua default runtime policy" and "Aqua default host runtime
+    policy"; anywhere else it is reported as not allowed and not sent."""
 
 
 class RuntimePolicySpec(ManagedSpec):
@@ -304,5 +332,10 @@ FIELD_MAP = FieldMap(
             api_aliases=("limit_new_privileges",),
         ),
         FieldMapping("spec.controls.auditBruteForceLogin", "audit_brute_force_login"),
+
+        # --- default policies only (see KindDef.only_on) --------------------------
+        FieldMapping("spec.controls.bypassScope.enabled", "bypass_scope.enabled"),
+        FieldMapping("spec.controls.bypassScope.expression", "bypass_scope.scope.expression"),
+        FieldMapping("spec.controls.bypassScope.variables", "bypass_scope.scope.variables"),
     ],
 )
