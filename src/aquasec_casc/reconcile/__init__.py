@@ -21,6 +21,7 @@ from .diff import (
     three_way_diff,
 )
 from .engine import Options, is_predefined, is_shipped, reconcile, reconcile_all
+from .release import ReleaseOptions, release_all
 from .result import MUTATING, PENDING, Outcome, Result, RunSummary
 from .state import (
     NoopStateBackend,
@@ -41,6 +42,7 @@ __all__ = [
     "PENDING",
     "Plan",
     "ReleasePolicy",
+    "ReleaseOptions",
     "Result",
     "RunSummary",
     "StateBackend",
@@ -53,5 +55,6 @@ __all__ = [
     "marker",
     "reconcile",
     "reconcile_all",
+    "release_all",
     "three_way_diff",
 ]

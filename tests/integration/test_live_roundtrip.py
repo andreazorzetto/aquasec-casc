@@ -123,3 +123,53 @@ def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
     code, out = cli(client, "apply", "-f", str(repo), "--allow-empty")
     assert code == 0 and "1 deleted" in out, out
     assert server() is None
+
+
+def test_adopt_hand_over_release_then_nothing_is_deleted(client, throwaway, tmp_path):
+    from aquasec import runtime_policies as rp
+
+    from aquasec_casc.reconcile import marker
+
+    first, second = f"live-{secrets.token_hex(3)}", f"live-{secrets.token_hex(3)}"
+    repo = tmp_path / "repo"
+
+    def server():
+        return rp.get_runtime_policy(client.server, client.token, throwaway)
+
+    original = server()
+    unchanged = ("enabled", "enforce", "application_scopes", "block_disallowed_images",
+                 "container_exec", "drift_prevention")
+
+    code, out = cli(client, "export", "--scope", "Global", "--name", throwaway,
+                    "-o", str(repo), "--instance", first)
+    assert code == 0, out
+    code, out = cli(client, "apply", "-f", str(repo))
+    assert code == 0 and "1 adopted" in out, out
+
+    # dry run: names the object, writes nothing
+    code, out = cli(client, "release", "-f", str(repo), "--name", throwaway, "--dry-run")
+    assert code == 0 and "1 to release" in out, out
+    assert marker.owner(server()["description"]) == first
+
+    # hand over: the old instance is now blocked, the new one owns it
+    code, out = cli(client, "release", "-f", str(repo), "--name", throwaway, "--to", second)
+    assert code == 0 and "1 handed over" in out, out
+    assert marker.owner(server()["description"]) == second
+    code, out = cli(client, "diff", "-f", str(repo))
+    assert code == 2 and "blocked" in out, out
+
+    # release from the new owner: the description is back to the original text
+    code, out = cli(client, "release", "--instance", second, "--name", throwaway)
+    assert code == 0 and "1 released" in out, out
+    after = server()
+    assert after["description"] == original["description"]
+    for key in unchanged:
+        assert after.get(key) == original.get(key), key
+
+    # neither instance deletes it when its file goes away
+    for f in repo.glob("runtime-policy-*.yaml"):
+        f.unlink()
+    for instance in (first, second):
+        code, out = cli(client, "apply", "-f", str(repo), "--allow-empty", "--instance", instance)
+        assert code == 0 and "0 deleted" in out, out
+    assert server() is not None

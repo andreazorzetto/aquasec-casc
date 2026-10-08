@@ -208,3 +208,51 @@ def test_json_changes_carry_both_names(repo):
     change = json.loads(run(["diff", "-f", str(repo), "--output", "json"], aqua)[1])["results"][0]["changes"][0]
     assert change["field"] == "controls.blockNonCompliantImages"
     assert change["path"] == "block_disallowed_images"
+
+
+# --------------------------------------------------------------------------- #
+# release
+# --------------------------------------------------------------------------- #
+
+def test_release_dry_run_then_release(repo):
+    aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
+    code, out, _ = run(["release", "-f", str(repo), "--dry-run"], aqua)
+    assert code == 0 and "will be released" in out and "1 to release" in out
+    assert aqua.writes() == []
+
+    code, out, _ = run(["release", "-f", str(repo)], aqua)
+    assert code == 0 and "1 released" in out and "adopts the objects again" in out
+    assert marker.owner(aqua.objects["devtest-baseline"]["description"]) is None
+
+
+def test_release_needs_no_yaml(tmp_path):
+    aqua = FakeAqua({"p": marked("p")})
+    code, out, _ = run(["release", "-f", str(tmp_path), "--instance", "platform"], aqua)
+    assert code == 0 and "1 released" in out
+
+
+def test_release_with_nothing_marked_says_so(repo):
+    code, out, _ = run(["release", "-f", str(repo)], FakeAqua())
+    assert code == 0 and "Nothing to release" in out
+
+
+def test_hand_over(repo):
+    aqua = FakeAqua({"p": marked("p")})
+    code, out, _ = run(["release", "-f", str(repo), "--to", "team-b"], aqua)
+    assert code == 0 and "handed over" in out and "1 handed over" in out and "blocked" in out
+    assert marker.owner(aqua.objects["p"]["description"]) == "team-b"
+
+
+@pytest.mark.parametrize("to,message", [("platform", "this instance already"),
+                                        ("Team B", "not a valid instance")])
+def test_hand_over_target_is_checked_before_connecting(repo, to, message):
+    code, _, err = run(["release", "-f", str(repo), "--to", to], aqua=None)
+    assert code == 1 and message in err
+
+
+def test_release_json(repo):
+    aqua = FakeAqua({"p": marked("p")})
+    code, out, _ = run(["release", "-f", str(repo), "--output", "json"], aqua)
+    data = json.loads(out)
+    assert code == 0 and data["summary"] == "1 released"
+    assert data["results"][0]["outcome"] == "released"

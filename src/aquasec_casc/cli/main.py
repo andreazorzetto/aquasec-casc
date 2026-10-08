@@ -10,6 +10,7 @@ Exit codes:
   apply     0 done, 1 error; 2 when something is left pending, only with
             --detailed-exitcode (Argo CD fails a sync on any non-zero exit)
   export    0 done, 1 error
+  release   0 done (or nothing to release), 1 error
 """
 
 from __future__ import annotations
@@ -25,7 +26,8 @@ import yaml
 
 from . import NAME
 from .. import export as exporting
-from ..reconcile import Options, Outcome, RunSummary, marker, reconcile_all
+from ..reconcile import (Options, Outcome, ReleaseOptions, RunSummary, marker,
+                         reconcile_all, release_all)
 from ..reconcile.client import ClientError
 from ..schema import SchemaError, SchemaErrorGroup, load_dir
 from ..schema.loader import CONFIG_FILENAMES
@@ -67,6 +69,7 @@ _LOOK = {
     Outcome.UPDATED: ("~", "updated", "yellow"),
     Outcome.ADOPTED: ("~", "adopted", "cyan"),
     Outcome.DELETED: ("-", "deleted", "red"),
+    Outcome.RELEASED: ("~", "released", "cyan"),
     Outcome.DRIFT_DETECTED: ("!", "drift detected (ReportOnly)", "yellow"),
     Outcome.BLOCKED: ("x", "blocked", "red"),
     Outcome.ORPHANED: ("?", "orphaned", "yellow"),
@@ -77,6 +80,8 @@ _PLANNED = {
     "adopt": ("~", "will be adopted", "cyan"),
     "update": ("~", "will be updated", "yellow"),
     "delete": ("-", "will be deleted", "red"),
+    "release": ("~", "will be released", "cyan"),
+    "hand-over": ("~", "will be handed over", "cyan"),
 }
 
 
@@ -126,12 +131,17 @@ def change_lines(result, instance: str) -> list[str]:
     return lines
 
 
-def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = False) -> None:
+def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = False,
+                line: str | None = None) -> None:
     for r in summary.results:
         if r.outcome is Outcome.IN_SYNC and not r.not_allowed and not verbose:
             continue
-        sym, label, colour = (_PLANNED.get(r.action) if r.outcome is Outcome.PLANNED
-                              else _LOOK.get(r.outcome, ("*", r.outcome.value, "")))
+        if r.outcome is Outcome.PLANNED:
+            sym, label, colour = _PLANNED.get(r.action)
+        elif r.outcome is Outcome.RELEASED and r.action == "hand-over":
+            sym, label, colour = ("~", "handed over", "cyan")
+        else:
+            sym, label, colour = _LOOK.get(r.outcome, ("*", r.outcome.value, ""))
         ref = f"{r.kind}/{r.name}"
         shown = ref if (r.aqua_name in (None, r.name)) else f"{ref} ({r.aqua_name!r})"
         out.line(f"{sym} {shown}: {label}", colour)
@@ -142,10 +152,10 @@ def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = Fa
             out.line(f"    not allowed: {item}", "red")
         if r.message:
             out.line(f"    {r.message}", "dim")
-    out.line(summary.summary_line(), "bold")
+    out.line(line or summary.summary_line(), "bold")
 
 
-def render_json(summary: RunSummary, exit_code: int) -> str:
+def render_json(summary: RunSummary, exit_code: int, line: str | None = None) -> str:
     def plan_json(r):
         if not r.plan:
             return []
@@ -159,7 +169,7 @@ def render_json(summary: RunSummary, exit_code: int) -> str:
         return out
 
     return json.dumps({
-        "summary": summary.summary_line(),
+        "summary": line or summary.summary_line(),
         "exitCode": exit_code,
         "results": [{
             "kind": r.kind, "name": r.name, "aquaName": r.aqua_name,
@@ -334,6 +344,50 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
     return 0
 
 
+def cmd_release(args, out: Out, connect: Callable) -> int:
+    instance = resolve_instance(args.instance, config_root(Path(args.file)))
+    to = None
+    if args.to is not None:
+        try:
+            to = marker.validate_instance(args.to)
+        except marker.InvalidInstance as exc:
+            raise UsageError(f"--to: {exc}")
+        if to == instance:
+            raise UsageError(f"--to {to!r} is this instance already; nothing to hand over")
+
+    client = connect(args.profile)
+    summary = release_all(client, ReleaseOptions(
+        instance=instance, to=to, names=tuple(args.name or ()), dry_run=args.dry_run))
+
+    count = len(summary.of(Outcome.PLANNED if args.dry_run else Outcome.RELEASED))
+    verb = ("to hand over" if to else "to release") if args.dry_run else (
+        "handed over" if to else "released")
+    line = f"{count} {verb}"
+    if summary.failed:
+        line += f", {len(summary.failed)} failed"
+    code = summary.exit_code(detailed=False)
+
+    if args.output == "json":
+        out.line(render_json(summary, code, line))
+        return code
+
+    if not summary.results:
+        out.line(f"Nothing to release: no object carries '{marker.marker(instance)}'"
+                 + (" and matches --name." if args.name else "."), "bold")
+        return code
+    render_text(summary, out, instance, line=line)
+    if count:
+        lead = "Afterwards" if args.dry_run else "Next"
+        if to:
+            out.line(f"{lead}: move these objects' files to the '{to}' configuration and remove "
+                     f"them here. Until then, applies from '{instance}' report them as blocked.",
+                     "dim")
+        else:
+            out.line(f"{lead}: remove these objects' files from Git, or stop the pipeline. "
+                     "While they remain, the next apply adopts the objects again.", "dim")
+    return code
+
+
 # --------------------------------------------------------------------------- #
 # Wiring
 # --------------------------------------------------------------------------- #
@@ -387,6 +441,24 @@ def build_parser() -> argparse.ArgumentParser:
                    help="only objects whose name matches (glob; repeatable)")
     p.add_argument("--force", action="store_true", help="overwrite existing files")
     p.set_defaults(handler=cmd_export)
+
+    p = sub.add_parser(
+        "release", help="stop managing objects without deleting them (removes the marker)",
+        description=("Remove this instance's ownership marker from the objects it manages, "
+                     "changing nothing else, so they are left exactly as they are. With "
+                     "--to, hand them to another instance instead. Needs no YAML: objects "
+                     "are found by their marker."))
+    common(p, needs_files=False)
+    connection(p)
+    p.add_argument("-f", "--file", default=".", metavar="PATH",
+                   help=f"where to look for {CONFIG_FILE} for the instance name "
+                        "(default: the current directory)")
+    p.add_argument("--name", action="append", metavar="PATTERN",
+                   help="only objects whose Aqua name matches (glob; repeatable)")
+    p.add_argument("--to", metavar="INSTANCE",
+                   help="hand the objects over to this instance instead of releasing them")
+    p.add_argument("--dry-run", action="store_true", help="show what would be released")
+    p.set_defaults(handler=cmd_release)
 
     return parser
 

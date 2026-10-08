@@ -25,6 +25,10 @@ class Outcome(str, Enum):
 
     DELETED = "deleted"
 
+    RELEASED = "released"
+    """``release``: this instance's marker removed (or rewritten for another
+    instance). Nothing else on the object changed."""
+
     PLANNED = "planned"
     """Dry run: this is what would happen (see ``Result.action``)."""
 
@@ -42,7 +46,8 @@ class Outcome(str, Enum):
 
 
 #: Outcomes that mean the tenant was actually modified.
-MUTATING = frozenset({Outcome.CREATED, Outcome.UPDATED, Outcome.ADOPTED, Outcome.DELETED})
+MUTATING = frozenset({Outcome.CREATED, Outcome.UPDATED, Outcome.ADOPTED, Outcome.DELETED,
+                      Outcome.RELEASED})
 
 #: Outcomes that leave Git and Aqua apart.
 PENDING = frozenset({Outcome.PLANNED, Outcome.DRIFT_DETECTED, Outcome.BLOCKED, Outcome.ORPHANED})
@@ -62,7 +67,8 @@ class Result:
     reason: str = ""
 
     action: str = ""
-    """For PLANNED: create, adopt, update or delete."""
+    """For PLANNED: create, adopt, update, delete, release or hand-over.
+    For RELEASED: release or hand-over."""
 
     not_allowed: list[str] = field(default_factory=list)
     """Desired changes withheld because Aqua does not allow them (e.g. the scope
@@ -139,6 +145,7 @@ class RunSummary:
             "updated": len(self.of(Outcome.UPDATED)),
             "adopted": len(self.of(Outcome.ADOPTED)),
             "deleted": len(self.of(Outcome.DELETED)),
+            "released": len(self.of(Outcome.RELEASED)),
             "planned": len(self.of(Outcome.PLANNED)),
             "drifted": len(self.of(Outcome.DRIFT_DETECTED)),
             "blocked": len(self.of(Outcome.BLOCKED)),

@@ -254,8 +254,8 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options) ->
                     informational=True,
                     message=("no file describes it, but it is shipped by Aqua and the "
                              "tool never deletes those. It keeps its settings and the "
-                             "ownership marker; remove the marker in the console to "
-                             "release it."),
+                             f"ownership marker; run 'release --name \"{name}\"' to "
+                             "stop managing it."),
                 ))
             elif options.no_delete:
                 results.append(Result(**common, outcome=Outcome.ORPHANED, reason="DeletionDisabled",

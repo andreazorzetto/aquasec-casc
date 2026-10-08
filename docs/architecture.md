@@ -184,6 +184,38 @@ never delete, such as a first rollout or a read-mostly pipeline. Under
 
 ---
 
+## Leaving: release and hand-over
+
+Deleting the files deletes the objects, so it cannot be the way to *stop
+managing* them. `--no-delete` is not either: the objects keep the marker, and
+the first run without the flag deletes them.
+
+`release` removes this instance's marker and changes nothing else. The objects
+carry on exactly as they are, unmanaged. `--to <instance>` rewrites the marker
+instead, moving the objects to another instance (another team or repository, or
+a renamed instance) without an unmanaged moment in between.
+
+```
+  aquasec-casc release --dry-run            what would be released
+  aquasec-casc release [--name 'prod-*']    remove the marker
+  aquasec-casc release --to team-b          hand over to another instance
+```
+
+- **It needs no YAML.** Objects are found by this instance's marker, so it still
+  works after the repository is gone. The instance name comes from the usual
+  place (`--instance`, `$AQUASEC_CASC_INSTANCE`, or `aquasec-casc.yaml`).
+- **Only the description is written**, and in it only the marker line. The
+  whole object is re-read just before the write, because update is a full
+  replace; one that changed owner in the meantime is left alone.
+- **It is reversible.** `export` and `apply` adopt the objects again.
+- **Order matters: release first, then remove the files or stop the pipeline.**
+  While both remain, the next apply adopts the objects again. After a hand-over,
+  the old instance's runs report the objects as blocked until its files go.
+- On runtime policies the API rewrites `author` on every edit, so released
+  policies still show the tool's identity as author.
+
+---
+
 ## Built-in policies
 
 Aqua ships runtime policies of its own -- 18 on the lab tenant -- flagged
@@ -252,6 +284,7 @@ name, which Aqua names often are not ("Aqua default runtime policy"), so
   apply      0 done       1 error     2 something left pending -- only with
                                         --detailed-exitcode
   export     0 done       1 error
+  release    0 done       1 error       (also 0 when there is nothing to release)
 ```
 
 `apply` exits 0 on success by default because Argo CD fails a sync on any
