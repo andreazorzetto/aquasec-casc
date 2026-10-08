@@ -45,8 +45,6 @@ class DriftPrevention(StrictModel):
     inheritToChild: bool = False
     """Apply the exec lockdown decision to child processes."""
 
-    preventPrivileged: bool | None = None
-    """Not present on the lab tenant -- see FIELD_MAP before relying on it."""
 
     exceptions: list[str] = Field(default_factory=list)
     """Processes exempt from exec lockdown.
@@ -283,18 +281,10 @@ FIELD_MAP = FieldMap(
             "spec.controls.driftPrevention.inheritToChild",
             "drift_prevention.exec_lockdown_inherit_to_child",
         ),
-        FieldMapping(
-            "spec.controls.driftPrevention.preventPrivileged",
-            "drift_prevention.prevent_privileged",
-            unverified=True,
-            note=(
-                "The Terraform provider declares this (with omitempty), but it "
-                "is absent from all 47 policies on the lab tenant -- so it is "
-                "either removed, or omitted when false and only appears once "
-                "set. Until a write test confirms it is honoured, treat a diff "
-                "on this field with suspicion."
-            ),
-        ),
+        # Not mapped: drift_prevention.prevent_privileged. The Terraform provider
+        # declares it, but Aqua accepts it on create and update and then drops
+        # it (write-tested live) -- managing it would show drift forever.
+        # Blocking privileged containers is limit_container_privileges.privileged.
         FieldMapping(
             "spec.controls.driftPrevention.exceptions",
             "drift_prevention.exec_lockdown_white_list",

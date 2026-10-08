@@ -1,5 +1,6 @@
-# Playground policy 3 of 3: every runtime control the schema supports, on, in
-# enforce mode -- the strictest container policy this tool can describe.
+# Playground policy 3 of 3: every runtime control the schema supports so far,
+# on, in enforce mode. The schema does not yet cover all of Aqua's controls
+# (e.g. Limit Container Privileges, File Block, Port Block, Malware Scanning).
 #
 # Safe on any tenant: enabled is false, so the policy exists but does nothing.
 # Enabled for real, it would block most workloads (only registered, compliant
@@ -10,9 +11,6 @@
 #   enableForkGuard, forkGuardProcessLimit  deprecated by Aqua (Unified Mode
 #                                           enforcers); the API keeps the field
 #                                           but it has no effect.
-#   driftPrevention.preventPrivileged       declared by the Terraform provider,
-#                                           absent from the API on the tenants
-#                                           checked so far.
 #   bypassScope                             exists only on Aqua's default
 #                                           container and host policies.
 apiVersion: config.aquasec.com/v1alpha1
@@ -20,7 +18,7 @@ kind: RuntimePolicy
 metadata:
   name: casc-playground-all-controls
 spec:
-  description: aquasec-casc playground -- every control on; safe to delete
+  description: aquasec-casc playground -- every supported control on; safe to delete
   enabled: false                      # inert: change only on a tenant you own
   enforce: true
   runtimeType: container

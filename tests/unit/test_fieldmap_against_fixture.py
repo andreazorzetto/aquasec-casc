@@ -67,11 +67,16 @@ def test_every_verified_mapping_exists_on_a_real_object(policy):
     assert missing == [], f"mapped but absent from a real policy object: {missing}"
 
 
-def test_the_unverified_mapping_is_the_one_we_expect(policy):
-    """Only prevent_privileged is unconfirmed; nothing else should creep in."""
-    unverified = {m.canonical for m in FIELD_MAP.unverified()}
-    assert unverified == {"spec.controls.driftPrevention.preventPrivileged"}
+def test_no_mapping_is_unverified(policy):
+    """Every mapped field has been seen on a real policy object."""
+    assert list(FIELD_MAP.unverified()) == []
+
+
+def test_prevent_privileged_is_not_mapped(policy):
+    """Aqua accepts drift_prevention.prevent_privileged and drops it (write-tested
+    live); mapping it would report drift on every run."""
     assert get_path(policy, "drift_prevention.prevent_privileged") is MISSING
+    assert FIELD_MAP.for_api_path("drift_prevention.prevent_privileged") == (None, False)
 
 
 def test_the_demo_field_is_present_and_the_retired_name_is_not(policy):
