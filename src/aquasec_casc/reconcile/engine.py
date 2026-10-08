@@ -153,13 +153,15 @@ def reconcile(
         body[kind.name_field] = name
         plan, not_allowed = _split(kind, None, name, three_way_diff(desired=body, actual={}))
         body = plan.apply_to({})
-        if options.dry_run:
-            return Result(**common, outcome=Outcome.PLANNED, action="create", plan=plan,
-                          not_allowed=not_allowed, reason="CreateRequired")
+        # ReportOnly first: a dry run must say what apply would do, and apply
+        # would not create it.
         if report_only:
             return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, reason="Missing",
                           not_allowed=not_allowed,
                           message="does not exist in Aqua; ReportOnly, so not created")
+        if options.dry_run:
+            return Result(**common, outcome=Outcome.PLANNED, action="create", plan=plan,
+                          not_allowed=not_allowed, reason="CreateRequired")
         try:
             created = client.create(kind, body)
         except ClientError as exc:
@@ -188,14 +190,14 @@ def reconcile(
         return Result(**common, outcome=Outcome.IN_SYNC, plan=plan, not_allowed=not_allowed)
 
     action = "adopt" if adopting else "update"
+    if report_only:
+        return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, not_allowed=not_allowed,
+                      reason="ReportOnly",
+                      message="drift detected; spec.enforcement is ReportOnly, so apply changes nothing")
     if options.dry_run:
         return Result(**common, outcome=Outcome.PLANNED, action=action, plan=plan,
                       not_allowed=not_allowed,
                       reason="AdoptRequired" if adopting else "UpdateRequired")
-    if report_only:
-        return Result(**common, outcome=Outcome.DRIFT_DETECTED, plan=plan, not_allowed=not_allowed,
-                      reason="ReportOnly",
-                      message="drift detected; spec.enforcement is ReportOnly so nothing was changed")
 
     try:
         client.update(kind, name, plan.apply_to(actual))

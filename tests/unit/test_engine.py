@@ -196,6 +196,15 @@ def test_report_only_does_not_create_a_missing_object():
     assert aqua.writes() == []
 
 
+@pytest.mark.parametrize("existing", [True, False])
+def test_a_dry_run_of_report_only_says_what_apply_will_do(existing):
+    """diff must not promise an update or a create that apply will not make."""
+    aqua = FakeAqua({"devtest-baseline": server(block_disallowed_images=True)} if existing else {})
+    r = reconcile(policy(enforcement="ReportOnly"), KIND, aqua, opts(dry_run=True))
+    assert r.outcome is Outcome.DRIFT_DETECTED and r.pending
+    assert aqua.writes() == []
+
+
 def test_a_failed_update_is_reported_not_raised():
     aqua = FakeAqua({"devtest-baseline": server(block_disallowed_images=True)})
     aqua.fail_on["update"] = ClientError("HTTP 500", status=500)

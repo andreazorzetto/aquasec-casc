@@ -1,0 +1,5 @@
+# aquasec-casc settings for the playground.
+# The instance name is written into every object this tool manages
+# ("managed-by: aquasec-casc/playground" in its description). Objects carrying
+# another instance's marker are never touched.
+instance: playground

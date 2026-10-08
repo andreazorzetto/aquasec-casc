@@ -1,0 +1,26 @@
+# Playground policy 1 of 2: a typical container baseline.
+#
+# Safe on any tenant: enabled is false, so the policy exists but does nothing.
+# Global is used because every tenant has it -- Aqua refuses a policy whose
+# scope does not exist.
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata:
+  name: casc-playground-baseline
+spec:
+  description: aquasec-casc playground -- safe to delete
+  enabled: false                      # inert: change only on a tenant you own
+  enforce: false                      # audit mode
+  runtimeType: container
+  applicationScopes:
+    - Global
+  controls:
+    blockNonCompliantImages: false
+    blockContainerExec: true
+    containerExecAllowedProcesses:
+      - /bin/sh
+    driftPrevention:
+      enabled: true
+      execLockdown: true
+      exceptions:
+        - "redis-*"

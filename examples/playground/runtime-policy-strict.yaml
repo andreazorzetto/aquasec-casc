@@ -1,0 +1,27 @@
+# Playground policy 2 of 2: a stricter profile, and the one to delete when you
+# try Git-driven deletion (remove this file, then diff and apply).
+#
+# Safe on any tenant: enabled is false, so the policy exists but does nothing.
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata:
+  name: casc-playground-strict
+spec:
+  description: aquasec-casc playground -- safe to delete
+  enabled: false                      # inert: change only on a tenant you own
+  enforce: true
+  runtimeType: container
+  applicationScopes:
+    - Global
+  controls:
+    blockNonCompliantImages: true
+    blockNonCompliantWorkloads: true
+    blockContainerExec: true
+    blockReverseShell: true
+    blockFilelessExec: true
+    blockCryptocurrencyMining: true
+    enablePortScanProtection: true
+    driftPrevention:
+      enabled: true
+      execLockdown: true
+      imageLockdown: true
