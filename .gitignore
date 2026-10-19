@@ -26,6 +26,9 @@ htmlcov/
 .idea/
 .vscode/
 
-# Aqua docs export (2,980 pages, ~10MB). Login-gated vendor content -- kept
-# locally as a development reference, not distributed with the repo.
-reference/aqua-docs-index.json
+# Aqua's docs and API specs are login-gated vendor content: never commit them
+# here. Development uses a separate private knowledge base, read in place; this
+# guard catches a copy dropped into the repo by mistake.
+reference/
+knowledge/
+aqua_swagger_*.json
