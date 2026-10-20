@@ -90,9 +90,16 @@ later update, which Aqua validates differently. What that found is built in:
 | `driftPrevention.preventPrivileged` | Terraform-only. Aqua accepts and discards it. Use `limitContainerPrivileges.privileged`. |
 | `readonlyFiles` on a container policy | Aqua refuses it (deprecated there); `validate` says so. |
 | `blockOutdatedImages` on a host policy | Container policies only; `validate` says so. |
+| Secure AI model lists | Entries are `Service@model` (`OpenAI@gpt-4o`, or `OpenAI@*` for every model); Aqua refuses anything else, so `validate` checks the shape. Service names are Aqua's to check. |
 
-Not covered yet: Secure AI, Tripwire (serverless; it stores a password, and the
-tool never manages credentials) and the forensics `*_config` objects.
+Secure AI (Discovery, Unauthorized Models) is audit only. The console switches it
+off when a policy is in enforce mode; the API keeps it as written, so the tool
+stores what the file says in either mode. On self-hosted Aqua it needs 2022.4
+Update 44 or later.
+
+Not covered yet: Secure AI - Protection (not in the console's list; it needs
+prompt protection set up first), Tripwire (serverless; it stores a password, and
+the tool never manages credentials) and the forensics `*_config` objects.
 
 ---
 

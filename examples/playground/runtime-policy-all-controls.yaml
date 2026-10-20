@@ -7,7 +7,6 @@
 # control is called, not a policy to roll out.
 #
 # Not here, on purpose:
-#   Secure AI (Discovery, Unauthorized Models)  not supported by the tool yet
 #   Fork Guard, Read-Only Files                 deprecated for containers; Aqua
 #                                               refuses Read-Only Files here
 #   Bypass Scope                                Aqua's default policies only
@@ -94,3 +93,9 @@ spec:
       allNetwork: true
     systemIntegrityMonitoring:
       systemTimeChanges: true
+    # Secure AI: audit only. The console switches these off in enforce mode;
+    # Aqua keeps them as written, so they are stored as written here too.
+    secureAiDiscovery:
+      ignore: ["OpenAI@gpt-4o-mini"]   # Service@model; Service@* for all its models
+    secureAiUnauthorizedModels:
+      models: ["DeepSeek@*", "Inference-Server@*"]

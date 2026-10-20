@@ -13,6 +13,7 @@ nothing. Recording a real response is what turns "plausible" into "checked".
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -112,10 +113,11 @@ def test_import_of_a_real_policy_produces_canonical_fields(policy):
 def test_import_drops_server_owned_fields(policy):
     """Nothing Aqua assigns itself may leak into our spec."""
     canonical = FIELD_MAP.from_api(policy)
-    blob = json.dumps(canonical)
+    keys = set(re.findall(r'"(\w+)":', json.dumps(canonical)))  # as keys, not substrings
 
-    for server_owned in ("author", "digest", "lastupdate", "is_ootb_policy", "vpatch"):
-        assert server_owned not in blob
+    for server_owned in ("author", "digest", "lastupdate", "is_ootb_policy", "vpatch_version"):
+        assert server_owned not in keys
+    assert "author" in json.dumps(policy)  # the fixture does carry them
 
 
 def test_reapplying_an_imported_policy_is_a_no_op(policy):

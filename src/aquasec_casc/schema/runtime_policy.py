@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
@@ -272,6 +272,51 @@ class SystemIntegrityMonitoring(Section):
     auditLogIntegrity: bool | None = None
 
 
+def _ai_models(entries: list[str] | None) -> list[str] | None:
+    """Entries are ``Service@model``: the service as the console lists it, then
+    the model name or ``*`` for every model of that service. Aqua refuses any
+    other shape (HTTP 400, write-tested); the service names themselves are left
+    to Aqua, whose list grows from release to release."""
+    for entry in entries or ():
+        service, at, model = entry.partition("@")
+        if not (service.strip() and at and model.strip()):
+            raise ValueError(
+                f"{entry!r} is not Service@model -- e.g. OpenAI@gpt-4o, or OpenAI@* "
+                "for every model of a service")
+    return entries
+
+
+class SecureAiDiscovery(Section):
+    """Secure AI - Discovery: reports AI services and models in use.
+
+    Audit only, Linux only. The console switches the Secure AI controls off when
+    a policy is in enforce mode; the API keeps them as written (write-tested), so
+    this tool stores what the file says in either mode.
+    """
+
+    ignore: list[str] | None = None
+    """Models and services left out of discovery ("Ignore List")."""
+
+    @field_validator("ignore")
+    @classmethod
+    def _service_at_model(cls, value):
+        return _ai_models(value)
+
+
+class SecureAiUnauthorizedModels(Section):
+    """Secure AI - Unauthorized Models: flags the listed models as unauthorized
+    (medium severity). Audit only, Linux only; same enforce-mode note as
+    Discovery."""
+
+    models: list[str] | None = None
+    """Models and services flagged as unauthorized."""
+
+    @field_validator("models")
+    @classmethod
+    def _service_at_model(cls, value):
+        return _ai_models(value)
+
+
 class ScopeVariable(StrictModel):
     """One term of a scope expression, e.g. a container label match."""
 
@@ -369,9 +414,12 @@ class Controls(StrictModel):
     systemIntegrityMonitoring: SystemIntegrityMonitoring | None = None
     readonlyRegistry: ReadonlyRegistry | None = None
     registryAccessMonitoring: RegistryAccessMonitoring | None = None
+    secureAiDiscovery: SecureAiDiscovery | None = None
+    secureAiUnauthorizedModels: SecureAiUnauthorizedModels | None = None
     # Not covered: tripwire (serverless; carries a password, and the tool never
-    # manages credential fields), secure_ai_* (not yet verified), and the
-    # auditing.*_config objects (no documented shape).
+    # manages credential fields), secure_ai_protection (not in the console's
+    # list; needs prompt protection set up first), and the auditing.*_config
+    # objects (no documented shape).
 
     # --- default policies only ---------------------------------------------------
     bypassScope: BypassScope | None = None
@@ -668,6 +716,9 @@ FIELD_MAP = FieldMap(
             "monitorAttributes": "monitored_registry_attributes",
             "monitorCreate": "monitored_registry_create",
             "monitorDelete": "monitored_registry_delete"}),
+        *_section("secureAiDiscovery", "secure_ai_discovery", {"ignore": "ignore_list"}),
+        *_section("secureAiUnauthorizedModels", "secure_ai_unauthorized_models",
+                  {"models": "unauthorized_list"}),
 
         # --- default policies only (see KindDef.only_on) --------------------------
         FieldMapping("spec.controls.bypassScope.enabled", "bypass_scope.enabled"),
