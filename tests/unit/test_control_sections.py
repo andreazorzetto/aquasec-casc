@@ -166,7 +166,8 @@ def test_a_control_on_with_no_settings_is_exported_as_true():
     assert doc["spec"]["controls"] == {"fileBlock": True, "blockContainerExec": True}
 
 
-def test_a_section_off_with_settings_keeps_them_and_applying_changes_nothing():
+def test_a_section_off_is_not_exported_and_applying_changes_nothing():
+    """Its settings stay on the server untouched: only the switch is managed."""
     from aquasec_casc.reconcile import Options, Outcome, reconcile
     from aquasec_casc.schema import load_document
 
@@ -174,9 +175,7 @@ def test_a_section_off_with_settings_keeps_them_and_applying_changes_nothing():
         port_block={"enabled": False, "block_inbound_ports": ["22"], "block_outbound_ports": []},
         container_exec={"enabled": False, "block_container_exec": False,
                         "container_exec_proc_white_list": ["sh"]})
-    assert doc["spec"]["controls"] == {
-        "portBlock": {"enabled": False, "blockedInboundPorts": ["22"]},
-        "blockContainerExec": {"enabled": False, "allowedProcesses": ["sh"]}}
+    assert "controls" not in doc["spec"]
     resource = load_document(doc, "p.yaml")[0]
     r = reconcile(resource, registry.get("RuntimePolicy"), aqua, Options(instance="x"))
     assert r.outcome is Outcome.ADOPTED and [c.path for c in r.plan.changes] == ["description"]

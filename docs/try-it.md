@@ -120,7 +120,6 @@ blocked inbound port `22`, and save. `plan` reports that too:
 $ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: will be updated
     ! controls.portBlock.enabled: true -> false   (API: port_block.enabled)
-    ! controls.portBlock.blockedInboundPorts: ["22"] -> []   (API: port_block.block_inbound_ports)
 ```
 
 The file is the whole policy: a control it leaves out is off. To keep the port

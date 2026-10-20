@@ -133,12 +133,22 @@ belongs to Aqua or the console and is left alone.**
 ```
 
 **The file is the whole policy.** A control the YAML leaves out is off, as on a
-new policy, where Aqua starts every control off: a switch `false`, a list empty,
-a number `0`, a choice `""` (verified live). So the same file gives the same
-policy whether it creates the object or updates it, and a control switched on
-only in the console shows up in `plan` as drift and is switched off. Removing a
-control from the YAML switches it off; `plan` shows `true -> false`, so a review
-sees it.
+new policy, where Aqua starts every control off (verified live). So the same
+file gives the same policy whether it creates the object or updates it, and a
+control switched on only in the console shows up in `plan` as drift and is
+switched off. Removing a control from the YAML switches it off; `plan` shows
+`true -> false`, so a review sees it.
+
+Two levels:
+
+- **A control left out:** only its switch goes off. Its settings stay as Aqua
+  has them: under an off switch they do nothing, and the console writes its own
+  defaults into them on every save (a 365-day outdated-images threshold, the
+  malware forensics options on). Managing them would report drift after every
+  console save, for settings with no effect.
+- **A control in the YAML** is the whole of that control: a setting it leaves
+  out is off -- `false`, an empty list, `0`, `""`, as on a new policy. A Port
+  Block with only inbound ports blocks no outbound ones.
 
 This replaced an earlier rule, "a field removed from the YAML stops being
 managed and keeps its value". It needed state to tell a removed field from one
@@ -156,10 +166,9 @@ Left as Aqua has them, because they are not controls or not covered:
 - a control this Aqua version does not have: nothing to switch off, and writing
   it would never converge.
 
-`export` follows the same rule: it writes the controls that are on, so an
-exported file reads as what the policy does. A section that is off but still
-holds settings keeps them, with `enabled: false`, so applying an export changes
-nothing.
+`export` follows the same rule: it writes only the controls that are on, so an
+exported file reads as what the policy does. A control that is off is left out
+whole, settings included; applying the export leaves them as they are.
 
 Updates always send the **complete** object with only our fields changed. Aqua's
 update is a full replace (verified live): a partial body resets every field it

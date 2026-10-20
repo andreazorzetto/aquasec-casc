@@ -187,7 +187,9 @@ def test_a_control_switched_on_in_the_console_is_switched_off():
     assert aqua.objects["devtest-baseline"]["block_fileless_exec"] is False
 
 
-def test_a_control_left_out_goes_off_with_its_gate_and_settings():
+def test_a_control_left_out_goes_off_with_its_gate_and_keeps_its_settings():
+    """Only the switch: settings under an off switch do nothing, and the console
+    rewrites its own defaults into them on every save."""
     aqua = FakeAqua({"devtest-baseline": server(
         container_exec={"enabled": True, "block_container_exec": True,
                         "container_exec_proc_white_list": ["sh"]},
@@ -199,13 +201,23 @@ def test_a_control_left_out_goes_off_with_its_gate_and_settings():
 
     stored = aqua.objects["devtest-baseline"]
     assert stored["container_exec"] == {"enabled": False, "block_container_exec": False,
-                                        "container_exec_proc_white_list": []}
+                                        "container_exec_proc_white_list": ["sh"]}
+    assert stored["fork_guard_process_limit"] == 12
+    assert stored["block_outdated_images"] == {"enabled": False, "threshold_value": 30,
+                                               "threshold_unit": "days"}
+    # A control in the file is the whole control: what it leaves out is off.
     assert stored["port_block"] == {"enabled": True, "block_inbound_ports": ["22"],
                                     "block_outbound_ports": []}
-    assert stored["fork_guard_process_limit"] == 0
-    assert stored["block_outdated_images"] == {"enabled": False, "threshold_value": 0,
-                                               "threshold_unit": ""}
     assert stored["block_disallowed_images"] is False       # was in the file
+
+
+def test_console_defaults_under_an_off_control_are_not_drift():
+    """What a console save writes into controls that are off."""
+    aqua = FakeAqua({"devtest-baseline": server(
+        block_outdated_images={"enabled": False, "threshold_value": 365, "threshold_unit": "days"},
+        malware_scan_options={"enabled": False, "file_forensic_collection": True,
+                              "selective_memory_dump_collection": True})})
+    assert reconcile(policy(), KIND, aqua, opts()).outcome is Outcome.IN_SYNC
 
 
 def test_settings_the_tool_does_not_cover_are_left_alone():

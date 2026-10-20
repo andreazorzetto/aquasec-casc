@@ -65,18 +65,18 @@ def _only_what_is_on(value: Any) -> Any:
     out is switched off anyway (``KindDef.off_when_unset``): the exported file
     lists what the policy does, not everything it does not do.
 
-    A section that is off but still holds settings keeps them, with its
-    ``enabled: false``, so applying the export changes nothing. One that is on
-    and holds settings drops ``enabled: true``: writing a setting switches the
-    section on.
+    A section that is off is dropped whole, settings included: a control left
+    out only has its switch turned off, so its settings stay as they are and
+    applying the export changes nothing. One that is on and holds settings
+    drops ``enabled: true``: writing a setting switches the section on.
     """
     if not isinstance(value, dict):
         return value
+    if value.get("enabled") is False:
+        return {}
     out = {k: v for k, v in ((k, _only_what_is_on(v)) for k, v in value.items())
            if not _is_off(v)}
-    if value.get("enabled") is False and out:
-        out = {"enabled": False, **out}
-    elif out.get("enabled") is True and len(out) > 1:
+    if out.get("enabled") is True and len(out) > 1:
         del out["enabled"]
     return out
 

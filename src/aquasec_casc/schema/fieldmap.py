@@ -177,15 +177,22 @@ class FieldMap:
 
     def switched_off(self, canonical: dict, actual: dict, under: str,
                      keep: tuple[str, ...] = ()) -> dict:
-        """API values that switch off every mapped setting under ``under`` the
-        document leaves out.
+        """API values that switch off what the document leaves out under
+        ``under`` (the controls).
 
-        A control the YAML does not mention is off, as on a new policy: a switch
-        is false, a list empty, a number 0 and a choice "" -- what Aqua holds on
-        a freshly created policy (verified live). Only paths the server object
-        has are returned: a field this tenant's version lacks has nothing to
-        switch off, and writing it would never converge. ``keep`` lists
-        canonical prefixes that are left as the server has them instead.
+        A control the YAML does not mention is off: its switch is false (with
+        any gate written alongside). Its settings are left as the server has
+        them -- they do nothing while it is off, and the console writes its own
+        defaults into them on every save (a 365-day threshold, malware
+        forensics on), which would otherwise read as drift each time.
+
+        A control the YAML does mention is the whole of that control: a setting
+        it leaves out is off, as on a new policy -- false, an empty list, 0 or
+        "" (what Aqua holds on a freshly created policy, verified live).
+
+        Only paths the server object has are returned: a field this tenant's
+        version lacks has nothing to switch off, and writing it would never
+        converge. ``keep`` lists canonical prefixes left as the server has them.
         """
         api: dict = {}
         for m in self.mappings:
@@ -193,6 +200,10 @@ class FieldMap:
                 continue
             if get_path(canonical, m.canonical) is not MISSING:
                 continue
+            control, *setting = m.canonical[len(under) + 1:].split(".")
+            if (setting not in ([], ["enabled"])
+                    and get_path(canonical, f"{under}.{control}") is MISSING):
+                continue        # a setting of a control that is left out
             for path in (m.api, *m.also_set):
                 off = _off(get_path(actual, path))
                 if off is not MISSING:
