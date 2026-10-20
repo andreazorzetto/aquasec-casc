@@ -18,6 +18,11 @@ spec:
     blockNonCompliantImages: true
     blockNonCompliantWorkloads: true
     blockContainerExec: true
+    containerExecAllowedProcesses:
+      # the console's default: AWS ECS Exec's agents
+      - /ecs-execute-command-*/amazon-ssm-agent
+      - /ecs-execute-command-*/ssm-session-worker
+      - /ecs-execute-command-*/ssm-agent-worker
     blockReverseShell: true
     blockFilelessExec: true
     driftPrevention:

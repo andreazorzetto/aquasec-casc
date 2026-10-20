@@ -20,6 +20,11 @@ spec:
   controls:
     blockNonCompliantImages: false    # one line in Git
     blockContainerExec: true
+    containerExecAllowedProcesses:
+      # the console's default: AWS ECS Exec's agents
+      - /ecs-execute-command-*/amazon-ssm-agent
+      - /ecs-execute-command-*/ssm-session-worker
+      - /ecs-execute-command-*/ssm-agent-worker
     driftPrevention:
       enabled: true
       execLockdown: true
