@@ -103,6 +103,24 @@ def has_path(obj: Any, dotted: str) -> bool:
     return get_path(obj, dotted) is not MISSING
 
 
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + ".")
+
+
+def _off(value: Any) -> Any:
+    """The off value of the same type as ``value``, or MISSING when there is
+    none to write (absent, null, or not a switch, list, number or choice)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, list):
+        return []
+    if isinstance(value, (int, float)):
+        return 0
+    if isinstance(value, str):
+        return ""
+    return MISSING
+
+
 @dataclass
 class FieldMap:
     """A bidirectional table of mappings for one kind."""
@@ -129,7 +147,8 @@ class FieldMap:
         pass a dict built with ``exclude_unset=True`` so that "the user did not
         mention this field" stays distinguishable from "the user set it to its
         default" -- that distinction is what makes the three-way diff able to
-        leave console-managed fields alone.
+        leave console-managed fields alone. (Controls are the exception: one
+        left out is off -- see ``switched_off``.)
         """
         api: dict = {}
         for mapping in self.mappings:
@@ -156,12 +175,36 @@ class FieldMap:
                     break
         return canonical
 
+    def switched_off(self, canonical: dict, actual: dict, under: str,
+                     keep: tuple[str, ...] = ()) -> dict:
+        """API values that switch off every mapped setting under ``under`` the
+        document leaves out.
+
+        A control the YAML does not mention is off, as on a new policy: a switch
+        is false, a list empty, a number 0 and a choice "" -- what Aqua holds on
+        a freshly created policy (verified live). Only paths the server object
+        has are returned: a field this tenant's version lacks has nothing to
+        switch off, and writing it would never converge. ``keep`` lists
+        canonical prefixes that are left as the server has them instead.
+        """
+        api: dict = {}
+        for m in self.mappings:
+            if not _under(m.canonical, under) or any(_under(m.canonical, k) for k in keep):
+                continue
+            if get_path(canonical, m.canonical) is not MISSING:
+                continue
+            for path in (m.api, *m.also_set):
+                off = _off(get_path(actual, path))
+                if off is not MISSING:
+                    set_path(api, path, off)
+        return api
+
     def owned_api_paths(self, canonical: dict) -> list[str]:
         """The API paths this document claims ownership of.
 
-        These are the fields the reconciler manages: the ones the YAML mentions.
-        Anything outside this set that appears on the server is Aqua's default
-        or a console edit, and is left alone.
+        These are the fields the YAML mentions. The reconciler also switches off
+        the controls it leaves out (``switched_off``); anything else outside
+        this set is Aqua's default or a console edit, and is left alone.
         """
         owned: list[str] = []
         for m in self.mappings:

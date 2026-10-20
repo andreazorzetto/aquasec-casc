@@ -55,6 +55,16 @@ class KindDef:
     """API paths that cannot change on a predefined object. A desired change is
     reported as not allowed instead of being sent."""
 
+    off_when_unset: str | None = None
+    """Canonical prefix under which a field the YAML leaves out is switched off
+    rather than left as the server has it. For runtime policies this is the
+    controls: the file is the whole policy, so a control removed from it -- or
+    switched on only in the console -- goes off, as on a new policy."""
+
+    kept_when_unset: tuple[str, ...] = ()
+    """Canonical prefixes under ``off_when_unset`` exempt from it: left as the
+    server has them when the YAML leaves them out."""
+
     # API paths deliberately do not live here: aquasec-lib owns them, and the
     # client adapter maps each kind onto the library's functions. Keeping one
     # copy means a path changing in Aqua is fixed in exactly one place.
@@ -81,6 +91,11 @@ REGISTRY: dict[str, KindDef] = {
             "Aqua default function runtime policy",
         }),
         predefined_immutable=("application_scopes",),
+        off_when_unset="spec.controls",
+        # Bypass Scope is scope, not a control, and the default container policy
+        # ships with it on, exempting Aqua's own components and kube-system.
+        # Switching it off because a file leaves it out would put them in scope.
+        kept_when_unset=("spec.controls.bypassScope",),
         # The console offers Bypass Scope only on these two. Every policy carries
         # bypass_scope in the API (disabled), so it is exported only for them.
         only_on={"bypass_scope": frozenset({

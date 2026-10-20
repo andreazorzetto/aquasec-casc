@@ -77,7 +77,8 @@ def server(name="devtest-baseline", description=f"Dev/test\n\n{MARK}", **extra):
     base = {"name": name, "description": description, "enforce": False, "enabled": True,
             "application_scopes": ["DevTest"], "block_disallowed_images": False,
             "author": "someone@example.com", "is_ootb_policy": False,
-            "malware_scan_options": {"enabled": True}}
+            "malware_scan_options": {"enabled": False},
+            "tripwire": {"enabled": True}}    # a setting the tool does not cover
     base.update(extra)
     return base
 
@@ -173,13 +174,72 @@ def test_drift_on_a_field_we_own_is_reverted_and_nothing_else_moves():
     r = reconcile(policy(), KIND, aqua, opts())
     assert r.outcome is Outcome.UPDATED
     assert [c.path for c in r.plan.changes] == ["block_disallowed_images"]
-    assert aqua.objects["devtest-baseline"]["malware_scan_options"] == {"enabled": True}
+    assert aqua.objects["devtest-baseline"]["tripwire"] == {"enabled": True}
 
 
-def test_a_console_edit_to_a_field_we_do_not_own_is_left_alone():
+def test_a_control_switched_on_in_the_console_is_switched_off():
+    """The file is the whole policy: a control it leaves out is off."""
     aqua = FakeAqua({"devtest-baseline": server(block_fileless_exec=True)})
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.UPDATED
+    assert [(c.path, c.before, c.after) for c in r.plan.changes] == [
+        ("block_fileless_exec", True, False)]
+    assert aqua.objects["devtest-baseline"]["block_fileless_exec"] is False
+
+
+def test_a_control_left_out_goes_off_with_its_gate_and_settings():
+    aqua = FakeAqua({"devtest-baseline": server(
+        container_exec={"enabled": True, "block_container_exec": True,
+                        "container_exec_proc_white_list": ["sh"]},
+        port_block={"enabled": True, "block_inbound_ports": ["22"], "block_outbound_ports": ["25"]},
+        fork_guard_process_limit=12,
+        block_outdated_images={"enabled": True, "threshold_value": 30, "threshold_unit": "days"})})
+    doc = policy(controls={"portBlock": {"inbound": ["22"]}})
+    reconcile(doc, KIND, aqua, opts())
+
+    stored = aqua.objects["devtest-baseline"]
+    assert stored["container_exec"] == {"enabled": False, "block_container_exec": False,
+                                        "container_exec_proc_white_list": []}
+    assert stored["port_block"] == {"enabled": True, "block_inbound_ports": ["22"],
+                                    "block_outbound_ports": []}
+    assert stored["fork_guard_process_limit"] == 0
+    assert stored["block_outdated_images"] == {"enabled": False, "threshold_value": 0,
+                                               "threshold_unit": ""}
+    assert stored["block_disallowed_images"] is False       # was in the file
+
+
+def test_settings_the_tool_does_not_cover_are_left_alone():
+    aqua = FakeAqua({"devtest-baseline": server()})
     assert reconcile(policy(), KIND, aqua, opts()).outcome is Outcome.IN_SYNC
-    assert aqua.objects["devtest-baseline"]["block_fileless_exec"] is True
+    assert aqua.objects["devtest-baseline"]["tripwire"] == {"enabled": True}
+
+
+def test_a_control_this_aqua_version_lacks_is_not_sent():
+    """Aqua drops fields it does not know, so writing one would never converge."""
+    aqua = FakeAqua({"devtest-baseline": server()})
+    r = reconcile(policy(), KIND, aqua, opts())
+    assert r.outcome is Outcome.IN_SYNC
+    assert "secure_ai_discovery" not in aqua.objects["devtest-baseline"]
+
+
+def test_bypass_scope_left_out_is_left_as_aqua_has_it():
+    """Scope, not a control -- and on by default on the default container policy."""
+    bypass = {"enabled": True, "scope": {"expression": "v1", "variables": [
+        {"attribute": "kubernetes.namespace", "value": "kube-system"}]}}
+    aqua = FakeAqua({"devtest-baseline": server(bypass_scope=bypass)})
+    assert reconcile(policy(), KIND, aqua, opts()).outcome is Outcome.IN_SYNC
+    assert aqua.objects["devtest-baseline"]["bypass_scope"] == bypass
+
+
+def test_a_create_sends_only_what_the_file_says():
+    """A new policy starts with every control off; there is nothing to switch off."""
+    aqua = FakeAqua()
+    reconcile(policy(), KIND, aqua, opts())
+    body = dict(aqua.objects["devtest-baseline"])
+    for server_owned in ("author", "is_ootb_policy", "id"):
+        body.pop(server_owned)
+    assert set(body) == {"name", "description", "enforce", "application_scopes",
+                         "block_disallowed_images"}
 
 
 def test_report_only_detects_and_changes_nothing():

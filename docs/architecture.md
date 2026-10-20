@@ -103,8 +103,9 @@ Aqua returns dozens of fields the YAML never mentions — defaults, timestamps,
 computed values, things somebody configured in the console. A naive diff reads
 every one of those as drift and tries to null them.
 
-The rule that prevents it: **the fields the YAML mentions are ours; every other
-field belongs to Aqua or the console and is left alone.**
+The rule that prevents it: **the fields the YAML mentions are ours, and so are
+the security controls, whether the YAML mentions them or not. Every other field
+belongs to Aqua or the console and is left alone.**
 
 ```
      DESIRED                         ACTUAL
@@ -122,18 +123,43 @@ field belongs to Aqua or the console and is left alone.**
   ┌────────────────────────────────┬──────────────────────────────────────┐
   │ In the YAML, and Aqua differs  │ Drift. Put it back to what Git says. │
   ├────────────────────────────────┼──────────────────────────────────────┤
-  │ Not in the YAML                │ An Aqua default, or a console edit.  │
+  │ A control not in the YAML      │ Off. Switched off if it is on.       │
+  ├────────────────────────────────┼──────────────────────────────────────┤
+  │ Anything else not in the YAML  │ An Aqua default, or a console edit.  │
   │                                │ LEFT ALONE.                          │
   ├────────────────────────────────┼──────────────────────────────────────┤
   │ In the YAML, missing in Aqua   │ Added.                               │
   └────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-A field removed from the YAML simply stops being managed: its value stays on the
-server. `kubectl apply` would delete it, because the Kubernetes API server
-re-applies its own default afterwards. Aqua offers no such guarantee — on a
-whole-object update a missing boolean becomes `false` — and silently switching a
-security control off because somebody tidied a YAML file is not acceptable.
+**The file is the whole policy.** A control the YAML leaves out is off, as on a
+new policy, where Aqua starts every control off: a switch `false`, a list empty,
+a number `0`, a choice `""` (verified live). So the same file gives the same
+policy whether it creates the object or updates it, and a control switched on
+only in the console shows up in `plan` as drift and is switched off. Removing a
+control from the YAML switches it off; `plan` shows `true -> false`, so a review
+sees it.
+
+This replaced an earlier rule, "a field removed from the YAML stops being
+managed and keeps its value". It needed state to tell a removed field from one
+never written; without state it meant the repository described only part of
+each policy, and a control enabled in the console was invisible to `plan`.
+
+Left as Aqua has them, because they are not controls or not covered:
+
+- fields outside the controls -- description, `enabled`, `enforce`, scopes --
+  when the YAML leaves them out (the marker is still added to the description);
+- **Bypass Scope** -- scope, not a control, and on by default on the default
+  container policy, exempting Aqua's own components;
+- settings the schema does not cover yet: Secure AI – Protection, Tripwire, the
+  forensics `*_config` objects, additional scope criteria;
+- a control this Aqua version does not have: nothing to switch off, and writing
+  it would never converge.
+
+`export` follows the same rule: it writes the controls that are on, so an
+exported file reads as what the policy does. A section that is off but still
+holds settings keeps them, with `enabled: false`, so applying an export changes
+nothing.
 
 Updates always send the **complete** object with only our fields changed. Aqua's
 update is a full replace (verified live): a partial body resets every field it

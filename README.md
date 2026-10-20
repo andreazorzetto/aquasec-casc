@@ -10,8 +10,9 @@ YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
 - **Run once and exit.** From a laptop, a CI job, or an Argo CD PreSync hook.
 - **Stateless.** Ownership is a marker line in each object's description
   (`managed-by: aquasec-casc/<instance>`); there is no state file.
-- **Owns only what the YAML says.** Fields the YAML leaves out stay with the
-  console.
+- **The file is the whole policy.** A control the YAML leaves out is off, so a
+  control switched on in the console is drift. Fields that are not controls,
+  and ones the tool does not cover yet, stay with the console.
 - **Git-driven deletion**, with guardrails: only this instance's objects, never
   Aqua's own, never on an empty run.
 

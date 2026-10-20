@@ -3,8 +3,10 @@
 There is no state file. Each run compares what Git says with what Aqua has:
 
 * every field the YAML mentions is ours, and is corrected when it drifts;
-* every field the YAML does not mention belongs to Aqua or the console, and is
-  left alone;
+* a control the YAML does not mention is off, and is switched off if it is on
+  (``KindDef.off_when_unset``) -- the file is the whole policy;
+* any other field the YAML does not mention belongs to Aqua or the console, and
+  is left alone;
 * ownership of the object itself is the marker in its description
   (``marker``), which also tells this instance's objects apart from another's.
 
@@ -18,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from ..schema.base import Enforcement, Resource
+from ..schema.fieldmap import set_path
 from ..schema.registry import REGISTRY, KindDef
 from . import marker
 from .client import AquaClient, ClientError
@@ -105,7 +108,10 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     """The API object the YAML asks for, with the ownership marker in place.
 
     ``exclude_unset`` is load-bearing: a schema default is not a statement of
-    intent, so only fields the author wrote are owned.
+    intent, so only fields the author wrote are owned -- except under the kind's
+    ``off_when_unset`` prefix, where a field left out means off. Those off
+    values are taken against the server object, so a create sends none: a new
+    object starts with every control off already.
 
     The marker goes into the description. If the YAML sets a description, that
     text plus the marker is what we want. If it does not, the console's text is
@@ -114,6 +120,11 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     """
     canonical = resource.model_dump(exclude_unset=True, mode="json")
     desired = kind.field_map.to_api(canonical)
+    if kind.off_when_unset and actual:
+        off = kind.field_map.switched_off(canonical, actual, kind.off_when_unset,
+                                          keep=kind.kept_when_unset)
+        for path, value in flatten(off).items():
+            set_path(desired, path, value)
 
     if kind.collection:
         spec = canonical.get("spec") or {}

@@ -55,6 +55,49 @@ def _prune(value: Any) -> Any:
     return value
 
 
+def _is_off(value: Any) -> bool:
+    return (value is None or value is False or value == "" or value == [] or value == {}
+            or (type(value) is int and value == 0))
+
+
+def _only_what_is_on(value: Any) -> Any:
+    """Drop what is off -- false, empty, 0 -- since a control the file leaves
+    out is switched off anyway (``KindDef.off_when_unset``): the exported file
+    lists what the policy does, not everything it does not do.
+
+    A section that is off but still holds settings keeps them, with its
+    ``enabled: false``, so applying the export changes nothing.
+    """
+    if not isinstance(value, dict):
+        return value
+    out = {k: v for k, v in ((k, _only_what_is_on(v)) for k, v in value.items())
+           if not _is_off(v)}
+    if value.get("enabled") is False and out:
+        out = {"enabled": False, **out}
+    return out
+
+
+def _drop_off_controls(spec: dict, kind: KindDef) -> dict:
+    if not kind.off_when_unset:
+        return spec
+    *parents, leaf = kind.off_when_unset.split(".")[1:]     # below "spec"
+    holder = spec
+    for part in parents:
+        holder = holder.get(part) or {}
+    if not isinstance(holder.get(leaf), dict):
+        return spec
+    under = kind.off_when_unset + "."
+    kept = {k[len(under):].split(".")[0] for k in kind.kept_when_unset if k.startswith(under)}
+    section = holder[leaf]
+    trimmed = _only_what_is_on({k: v for k, v in section.items() if k not in kept})
+    trimmed.update({k: v for k, v in section.items() if k in kept})
+    if trimmed:
+        holder[leaf] = trimmed
+    else:
+        del holder[leaf]
+    return spec
+
+
 @dataclass
 class Exported:
     aqua_name: str
@@ -122,7 +165,7 @@ def export_kind(
             # apply report it as not allowed.
             if not (shipped and name in allowed):
                 api_view.pop(prefix.split(".")[0], None)
-        spec = _prune(kind.field_map.from_api(api_view).get("spec", {}))
+        spec = _drop_off_controls(_prune(kind.field_map.from_api(api_view).get("spec", {})), kind)
         text = marker.strip(full.get("description"))
         if text:
             spec["description"] = text

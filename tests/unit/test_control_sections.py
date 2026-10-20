@@ -77,21 +77,44 @@ def test_settings_aqua_will_not_keep_are_not_offered(controls):
         load_document(doc(controls), "t.yaml")
 
 
-def test_an_unset_choice_is_not_exported():
-    """Aqua stores "" for a unit or action while the control is off."""
+def _export_one(**fields):
     import sys
     sys.path.insert(0, "tests")
     from aquasec_casc.export import export_kind
     from unit.test_engine import FakeAqua
 
     obj = {"name": "p", "description": "", "enabled": False, "runtime_type": "container",
-           "application_scopes": ["Global"], "is_ootb_policy": False,
-           "block_outdated_images": {"enabled": False, "threshold_value": 0, "threshold_unit": ""},
-           "malware_scan_options": {"enabled": False, "action": ""}}
-    (item,) = export_kind(FakeAqua({"p": obj}), registry.get("RuntimePolicy"),
-                          instance="x", scope="Global").exported
-    controls = item.document["spec"]["controls"]
-    assert "unit" not in controls["blockOutdatedImages"] and "action" not in controls["malwareProtection"]
+           "application_scopes": ["Global"], "is_ootb_policy": False, **fields}
+    aqua = FakeAqua({"p": obj})
+    (item,) = export_kind(aqua, registry.get("RuntimePolicy"), instance="x",
+                          scope="Global").exported
+    return item.document, aqua
+
+
+def test_controls_that_are_off_are_not_exported():
+    """Aqua stores false, 0, "" and [] for a control that is off; a control the
+    file leaves out is off, so none of it is written."""
+    doc, _ = _export_one(
+        block_fileless_exec=False, fork_guard_process_limit=0,
+        block_outdated_images={"enabled": False, "threshold_value": 0, "threshold_unit": ""},
+        malware_scan_options={"enabled": False, "action": "", "exclude_directories": []},
+        port_block={"enabled": True, "block_inbound_ports": ["22"], "block_outbound_ports": []})
+    assert doc["spec"]["controls"] == {"portBlock": {"enabled": True, "inbound": ["22"]}}
+
+
+def test_a_section_off_with_settings_keeps_them_and_applying_changes_nothing():
+    from aquasec_casc.reconcile import Options, Outcome, reconcile
+    from aquasec_casc.schema import load_document
+
+    doc, aqua = _export_one(
+        port_block={"enabled": False, "block_inbound_ports": ["22"], "block_outbound_ports": []},
+        container_exec={"enabled": False, "block_container_exec": False,
+                        "container_exec_proc_white_list": ["sh"]})
+    assert doc["spec"]["controls"] == {"portBlock": {"enabled": False, "inbound": ["22"]},
+                                       "containerExecAllowedProcesses": ["sh"]}
+    resource = load_document(doc, "p.yaml")[0]
+    r = reconcile(resource, registry.get("RuntimePolicy"), aqua, Options(instance="x"))
+    assert r.outcome is Outcome.ADOPTED and [c.path for c in r.plan.changes] == ["description"]
 
 
 def test_secure_ai_sections_map_to_the_api():

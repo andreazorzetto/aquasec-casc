@@ -67,8 +67,9 @@ are not always on the same one.
 
 The console's sections (Limit Container Privileges, File Block, Port Block,
 Real-time Malware Protection, ...) are sections in the YAML too, under their
-console names. **Writing any setting switches the section on**, unless you also
-write `enabled: false`:
+console names. **Writing any setting switches the section on**, and **a
+control or section you leave out is off** -- there is no need to write
+`enabled: false` or `false` to switch one off, just remove it:
 
 ```yaml
   controls:

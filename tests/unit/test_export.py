@@ -115,6 +115,18 @@ def test_nulls_from_the_api_are_not_written(real_default):
     assert "None" not in json.dumps(doc) and "null" not in json.dumps(doc)
 
 
+def test_an_export_lists_only_what_is_on(real_default):
+    aqua = FakeAqua({real_default["name"]: real_default})
+    doc = export_kind(aqua, KIND, instance="platform", scope="Global").exported[0].document
+    controls = {k: v for k, v in doc["spec"]["controls"].items() if k != "bypassScope"}
+    for name, value in controls.items():
+        assert value not in (False, [], 0), name
+        if isinstance(value, dict):
+            settings = {k: v for k, v in value.items() if k != "enabled"}
+            assert settings or value["enabled"] is True, name   # off, and holding nothing
+            assert False not in settings.values() and [] not in settings.values(), name
+
+
 def test_every_exported_document_is_schema_valid(real_default):
     aqua = FakeAqua({real_default["name"]: real_default, "mine": custom("mine", ["Global"])})
     for item in export_kind(aqua, KIND, instance="platform", scope="Global").exported:

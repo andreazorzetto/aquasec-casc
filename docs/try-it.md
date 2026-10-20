@@ -113,8 +113,18 @@ $ aquasec-casc apply -f /tmp/playground
 Git wins. The YAML name leads, the API name is in brackets for anyone checking
 the console or the logs.
 
-Now change a setting the YAML does **not** mention, e.g. **Fork guard**. `plan`
-stays at `3 unchanged`: fields the YAML leaves out belong to the console.
+Now switch on a control the YAML does **not** mention: add **Port Block** with
+inbound port `22`, and save. `plan` reports that too:
+
+```
+$ aquasec-casc plan -f /tmp/playground
+~ RuntimePolicy/casc-playground-strict: will be updated
+    ! controls.portBlock.enabled: true -> false   (API: port_block.enabled)
+    ! controls.portBlock.inbound: ["22"] -> []   (API: port_block.block_inbound_ports)
+```
+
+The file is the whole policy: a control it leaves out is off. To keep the port
+block, write it into the YAML; to switch a control off, remove it.
 
 ## 5. Report only
 
