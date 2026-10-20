@@ -72,6 +72,33 @@ def test_section_names_map_to_the_api():
         "exceptional_monitored_files_users": ["root"]}
 
 
+def test_capabilities_block_drops_the_listed_capabilities():
+    body = api({"capabilitiesBlock": {"dropCapabilities": ["NET_RAW", "ALL"]}})
+    assert body["linux_capabilities"] == {"enabled": True,
+                                          "remove_linux_capabilities": ["NET_RAW", "ALL"]}
+
+
+@pytest.mark.parametrize("controls,hint", [
+    ({"containerExecAllowedProcesses": ["sh"]}, "now 'blockContainerExec.allowedProcesses'"),
+    ({"fileIntegrityMonitoring": {"paths": ["/etc"]}}, "now 'monitor.paths'"),
+    ({"onlyRegisteredImages": True}, "now 'blockUnregisteredImages'"),
+    ({"driftPrevention": {"imageLockdown": True}}, "not in Aqua's console"),
+    ({"portBlok": {"blockedInboundPorts": ["22"]}}, "did you mean 'portBlock'"),
+])
+def test_unknown_fields_get_a_hint_for_that_spot(controls, hint):
+    """Old names say what they became; typos are matched only against the
+    names valid where they appear, not anywhere in the schema."""
+    with pytest.raises(SchemaError, match=hint):
+        load_document(doc(controls), "t.yaml")
+
+
+def test_a_hint_never_points_to_a_field_from_elsewhere():
+    """'paths' exists, but under monitor/exclude -- not here."""
+    with pytest.raises(SchemaError) as exc:
+        load_document(doc({"fileBlock": {"path": ["/etc"]}}), "t.yaml")
+    assert "did you mean" not in str(exc.value)
+
+
 def test_blocking_outdated_images_on_a_host_fails_validation():
     with pytest.raises(SchemaError, match="only available on container"):
         load_document(doc({"blockOutdatedImages": {"olderThan": 2, "unit": "days"}}, "host"), "t.yaml")
@@ -94,7 +121,6 @@ def test_settings_aqua_will_not_keep_are_not_offered(controls):
 
 
 @pytest.mark.parametrize("controls", [
-    {"capabilitiesBlock": {"capabilities": ["NET_RAW"]}},
     {"readonlyFiles": {"files": ["/etc/passwd"]}},
     {"failedKubernetesChecks": {"checks": ["x"]}},
     {"driftPrevention": {"imageLockdown": True}},

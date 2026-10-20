@@ -10,6 +10,7 @@ verified against a live tenant.
 from __future__ import annotations
 
 from enum import Enum
+from typing import ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
@@ -29,6 +30,14 @@ class RuntimeType(str, Enum):
     CONTAINER = "container"
     HOST = "host"
     FUNCTION = "function"
+
+
+def _renamed(new: str) -> str:
+    return f"renamed: now {new!r}"
+
+
+_NOT_IN_CONSOLE = ("no longer offered: it is not in Aqua's console. Remove it; "
+                   "Aqua keeps the value the tenant has")
 
 
 class Section(StrictModel):
@@ -68,6 +77,14 @@ class BlockReverseShell(AllowedProcesses):
 
 
 class DriftPrevention(AllowedProcesses):
+    renamed: ClassVar[dict[str, str]] = {
+        "exceptions": _renamed("allowedProcesses"),
+        "execLockdownScripts": _renamed("includeScriptFiles"),
+        "inheritToChild": _renamed("applyToChildProcesses"),
+        "execLockdown": "not needed: switching driftPrevention on writes it, as the console does",
+        "imageLockdown": _NOT_IN_CONSOLE,
+    }
+
     """Drift Prevention: executables not in the original image do not run.
 
     The console's switch writes two API fields, ``enabled`` and
@@ -90,6 +107,8 @@ class LimitContainerPrivileges(Section):
     """Limit Container Privileges: each setting true prevents that privilege.
     The console's labels are sentences, so these are short forms."""
 
+    renamed: ClassVar[dict[str, str]] = {"ownerUserContext": _NOT_IN_CONSOLE}
+
     privileged: bool | None = None
     """Privileged containers."""
     hostNetwork: bool | None = None
@@ -110,12 +129,26 @@ class LimitContainerPrivileges(Section):
     """Adding capabilities with --cap-add."""
 
 
+class CapabilitiesBlock(Section):
+    """Capabilities Block: Linux capabilities containers may not use, named as
+    in the console's list (``NET_RAW``, ``SYS_ADMIN``; ``ALL``). The console
+    offers it only in enforce mode; the API accepts it in audit mode too (seen
+    live), so the tool stores what the file says, as for Secure AI."""
+
+    renamed: ClassVar[dict[str, str]] = {"capabilities": _renamed("dropCapabilities")}
+
+    dropCapabilities: list[str] | None = None
+
+
 class ExecutablesBlocked(Section):
     executables: list[str] | None = None
 
 
 class ExecutablesAllowed(Section):
     """Executables Allowed: everything else is prevented from running."""
+
+    renamed: ClassVar[dict[str, str]] = {
+        "rootExecutables": _NOT_IN_CONSOLE, "separateRootExecutables": _NOT_IN_CONSOLE}
 
     executables: list[str] | None = None
 
@@ -147,6 +180,9 @@ class BlockOutdatedImages(Section):
 
 
 class PortBlock(Section):
+    renamed: ClassVar[dict[str, str]] = {
+        "inbound": _renamed("blockedInboundPorts"), "outbound": _renamed("blockedOutboundPorts")}
+
     blockedInboundPorts: list[str] | None = None
     blockedOutboundPorts: list[str] | None = None
 
@@ -154,11 +190,19 @@ class PortBlock(Section):
 class FileBlock(Section):
     """File Block: no reading, writing or executing these files."""
 
+    renamed: ClassVar[dict[str, str]] = dict.fromkeys(
+        ("exceptions", "users", "exceptionUsers", "processes", "exceptionProcesses"),
+        _NOT_IN_CONSOLE)
+
     files: list[str] | None = None
 
 
 class PackageBlock(Section):
     """Package Block: no reading, writing or executing files of these packages."""
+
+    renamed: ClassVar[dict[str, str]] = dict.fromkeys(
+        ("exceptionFiles", "users", "exceptionUsers", "processes", "exceptionProcesses"),
+        _NOT_IN_CONSOLE)
 
     packages: list[str] | None = None
 
@@ -182,6 +226,14 @@ class FileIntegrityMonitoring(Section):
     offered here.
     """
 
+    renamed: ClassVar[dict[str, str]] = {
+        "paths": _renamed("monitor.paths"), "processes": _renamed("monitor.processes"),
+        "users": _renamed("monitor.users"), "exceptions": _renamed("exclude.paths"),
+        "exceptionProcesses": _renamed("exclude.processes"),
+        "exceptionUsers": _renamed("exclude.users"),
+        "monitorCreate": _renamed("create"), "monitorModify": _renamed("modify"),
+        "monitorDelete": _renamed("delete")}
+
     create: bool | None = None
     modify: bool | None = None
     delete: bool | None = None
@@ -191,6 +243,10 @@ class FileIntegrityMonitoring(Section):
 
 class WindowsRegistryMonitoring(Section):
     """Windows Registry Monitoring (hosts): audits registry operations."""
+
+    renamed: ClassVar[dict[str, str]] = {
+        **FileIntegrityMonitoring.renamed,
+        "monitorAttributes": _renamed("attributes"), "monitorRead": _NOT_IN_CONSOLE}
 
     create: bool | None = None
     modify: bool | None = None
@@ -203,16 +259,28 @@ class WindowsRegistryMonitoring(Section):
 class WindowsRegistryProtection(Section):
     """Windows Registry Protection (hosts): blocks changes to the registry."""
 
+    renamed: ClassVar[dict[str, str]] = {
+        "paths": _renamed("protect.paths"), "processes": _renamed("protect.processes"),
+        "users": _renamed("protect.users"), "exceptions": _renamed("exclude.paths"),
+        "exceptionProcesses": _renamed("exclude.processes"),
+        "exceptionUsers": _renamed("exclude.users")}
+
     protect: Entities | None = None
     exclude: Entities | None = None
 
 
 class OsUsersAndGroupsAllowed(Section):
+    renamed: ClassVar[dict[str, str]] = {
+        "users": _renamed("usersAllowed"), "groups": _renamed("groupsAllowed")}
+
     usersAllowed: list[str] | None = None
     groupsAllowed: list[str] | None = None
 
 
 class OsUsersAndGroupsBlocked(Section):
+    renamed: ClassVar[dict[str, str]] = {
+        "users": _renamed("usersBlocked"), "groups": _renamed("groupsBlocked")}
+
     usersBlocked: list[str] | None = None
     groupsBlocked: list[str] | None = None
 
@@ -233,6 +301,12 @@ class RealTimeMalwareProtection(Section):
     console offers.
     """
 
+    renamed: ClassVar[dict[str, str]] = {
+        "excludeDirectories": _renamed("excludedPaths"),
+        "excludeProcesses": _renamed("excludedProcesses"),
+        "fileForensicCollection": _renamed("collectForensicFiles"),
+        "memoryDumpCollection": _renamed("collectSelectiveMemoryDumps")}
+
     action: MalwareAction | None = None
     """Action for Malware Files."""
     excludedPaths: list[str] | None = None
@@ -246,6 +320,8 @@ class Forensics(Section):
     sentences ("Audit all process activity of the container"), so these are
     short forms."""
 
+    renamed: ClassVar[dict[str, str]] = {"processCommandLine": _renamed("fullCommandArguments")}
+
     allProcesses: bool | None = None
     fullCommandArguments: bool | None = None
     allNetwork: bool | None = None
@@ -257,6 +333,11 @@ class Forensics(Section):
 
 class SystemIntegrityMonitoring(Section):
     """System Integrity Monitoring (hosts): audits, never blocks."""
+
+    renamed: ClassVar[dict[str, str]] = {
+        "systemTimeChanges": _renamed("systemTime"),
+        "windowsServices": _renamed("windowsServicesMonitoring"),
+        "auditLogIntegrity": _renamed("monitorSystemLogIntegrity")}
 
     systemTime: bool | None = None
     windowsServicesMonitoring: bool | None = None
@@ -284,6 +365,8 @@ class SecureAiDiscovery(Section):
     a policy is in enforce mode; the API keeps them as written (write-tested), so
     this tool stores what the file says in either mode.
     """
+
+    renamed: ClassVar[dict[str, str]] = {"ignore": _renamed("ignoreList")}
 
     ignoreList: list[str] | None = None
     """Models and services left out of discovery."""
@@ -336,14 +419,38 @@ class Controls(StrictModel):
     console's control list. A control left out is off.
 
     Not offered, because the console does not show them (and no console-made
-    policy on the lab uses them): Capabilities Block, Read-Only Files, failed
-    Kubernetes checks, drift prevention's image lockdown, root executables,
+    policy on the lab uses them): Read-Only Files, failed Kubernetes checks,
+    drift prevention's image lockdown, root executables,
     File and Package Block's users, processes and exceptions, and the owner
     user context privilege. Nor: Tripwire (serverless; carries a password, and
     the tool never manages credential fields), Secure AI - Protection (needs
     prompt protection set up first) and the auditing ``*_config`` objects. All
     of these are left as Aqua has them.
     """
+
+    # Names from earlier versions of the schema, for "unknown field" hints.
+    renamed: ClassVar[dict[str, str]] = {
+        "onlyRegisteredImages": _renamed("blockUnregisteredImages"),
+        "blockNonCompliantWorkloads": _renamed("blockNonCompliantResources"),
+        "blockNonK8sContainers": _renamed("blockNonKubernetesContainers"),
+        "enableIpReputation": _renamed("dnsIpReputation"),
+        "enablePortScanProtection": _renamed("portScanningDetection"),
+        "noNewPrivileges": _renamed("limitNewPrivileges"),
+        "malwareProtection": _renamed("realTimeMalwareProtection"),
+        "auditBruteForceLogin": _renamed("bruteForceLoginDetection"),
+        "allowedOsUsers": _renamed("osUsersAndGroupsAllowed"),
+        "blockedOsUsers": _renamed("osUsersAndGroupsBlocked"),
+        "registryAccessMonitoring": _renamed("windowsRegistryMonitoring"),
+        "readonlyRegistry": _renamed("windowsRegistryProtection"),
+        "enableForkGuard": _renamed("forkGuard"),
+        "forkGuardProcessLimit": _renamed("forkGuard.processLimit"),
+        "containerExecAllowedProcesses": _renamed("blockContainerExec.allowedProcesses"),
+        "reverseShellAllowedProcesses": _renamed("blockReverseShell.allowedProcesses"),
+        "reverseShellAllowedIps": _renamed("blockReverseShell.whitelistedIps"),
+        "filelessExecAllowedProcesses": _renamed("blockFilelessExec.allowedProcesses"),
+        "readonlyFiles": _NOT_IN_CONSOLE,
+        "failedKubernetesChecks": _NOT_IN_CONSOLE,
+    }
 
     # --- images and workloads ------------------------------------------------
     blockNonCompliantImages: bool | None = None
@@ -374,6 +481,7 @@ class Controls(StrictModel):
     executablesBlocked: ExecutablesBlocked | None = None
     limitNewPrivileges: bool | None = None
     limitContainerPrivileges: LimitContainerPrivileges | None = None
+    capabilitiesBlock: CapabilitiesBlock | None = None
     forkGuard: ForkGuard | None = None
 
     # --- network and behaviour -------------------------------------------------
@@ -572,6 +680,8 @@ FIELD_MAP = FieldMap(
             "hostIpc": "ipcmode", "hostUts": "utsmode", "hostUserNamespace": "usermode",
             "rootUser": "prevent_root_user", "lowPortBinding": "prevent_low_port_binding",
             "addCapabilities": "block_add_capabilities"}),
+        *_section("capabilitiesBlock", "linux_capabilities",
+                  {"dropCapabilities": "remove_linux_capabilities"}),
         *_control("forkGuard", "enable_fork_guard", {"processLimit": "fork_guard_process_limit"}),
 
         # --- network and behaviour -------------------------------------------------

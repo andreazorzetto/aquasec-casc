@@ -59,6 +59,19 @@ def _nested_model(info: Any) -> Type[BaseModel] | None:
     return None
 
 
+def _model_at(model: Type[BaseModel], loc: tuple[Any, ...]) -> Type[BaseModel] | None:
+    """The model that holds the fields at ``loc``, or None."""
+    current: Type[BaseModel] | None = model
+    for part in loc:
+        if current is None or not isinstance(part, str):
+            return None
+        info = current.model_fields.get(part)
+        if info is None:
+            return None
+        current = _nested_model(info)
+    return current
+
+
 def _field_description(model: Type[BaseModel], loc: tuple[Any, ...]) -> str:
     """The schema description of the field at ``loc``, or "" if there is none."""
     current: Type[BaseModel] | None = model
@@ -93,8 +106,12 @@ def _split_problems(
         path = _dotted(err["loc"])
         if err["type"] == "extra_forbidden":
             bad = str(err["loc"][-1]) if err["loc"] else "?"
-            matches = difflib.get_close_matches(bad, sorted(known), n=1, cutoff=0.7)
-            hint = (
+            parent = _model_at(model, tuple(err["loc"][:-1]))
+            renamed = getattr(parent, "renamed", {}) if parent is not None else {}
+            # Suggest only names valid at this spot, not anywhere in the schema.
+            here = sorted(parent.model_fields) if parent is not None else sorted(known)
+            matches = difflib.get_close_matches(bad, here, n=1, cutoff=0.7)
+            hint = renamed.get(bad) or (
                 f"did you mean {matches[0]!r}?"
                 if matches
                 else (

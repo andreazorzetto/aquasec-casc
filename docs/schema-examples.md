@@ -105,10 +105,11 @@ later update, which Aqua validates differently. What that found is built in:
 |---|---|
 | File Integrity Monitoring *read* / *attributes* | Not in the console. Aqua accepts them on create, then drops *read* and refuses *attributes* on every update. |
 | Malware protection *include directories* | Not in the console. Aqua sets its own list and restores it on every save. |
-| Capabilities Block, Read-Only Files, failed Kubernetes checks, drift prevention's *image lockdown*, root executables, File and Package Block's users, processes and exceptions, the *owner user context* privilege | In the API, not in the console, and set by no console-made policy. Not offered. |
+| Read-Only Files, failed Kubernetes checks, drift prevention's *image lockdown*, root executables, File and Package Block's users, processes and exceptions, the *owner user context* privilege | In the API, not in the console, and set by no console-made policy. Not offered. |
 | Drift prevention's *exec lockdown* | Not a setting: the console's one switch writes both `drift_prevention.enabled` and `exec_lockdown`, and so does the tool. |
 | `driftPrevention.preventPrivileged` | Terraform-only. Aqua accepts and discards it. Use `limitContainerPrivileges.privileged`. |
 | `blockOutdatedImages` on a host policy | Container policies only; `validate` says so. |
+| Capabilities Block in audit mode | The console offers it in enforce mode only; Aqua accepts it in audit mode too, so the tool stores what the file says. Capability names are Aqua's to check (`NET_RAW`, `SYS_ADMIN`, `ALL`, ...). |
 | Secure AI model lists | Entries are `Service@model` (`OpenAI@gpt-4o`, or `OpenAI@*` for every model); Aqua refuses anything else, so `validate` checks the shape. Service names are Aqua's to check. |
 
 Secure AI (Discovery, Unauthorized Models) is audit only. The console switches it

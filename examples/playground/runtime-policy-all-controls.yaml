@@ -63,6 +63,8 @@ spec:
       rootUser: true
       lowPortBinding: true
       addCapabilities: true
+    capabilitiesBlock:                 # enforce mode only, in the console
+      dropCapabilities: ["NET_RAW", "SYS_ADMIN", "SYS_PTRACE"]
     executablesBlocked:
       executables: ["nc", "ncat", "wget", "curl"]
     executablesAllowed:
