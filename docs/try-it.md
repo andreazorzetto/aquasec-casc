@@ -103,24 +103,24 @@ execution**. Save.
 ```
 $ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: will be updated
-    ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
+    ! controls.blockFilelessExec.enabled: false -> true   (API: block_fileless_exec)
 
 $ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: updated
-    ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
+    ! controls.blockFilelessExec.enabled: false -> true   (API: block_fileless_exec)
 ```
 
 Git wins. The YAML name leads, the API name is in brackets for anyone checking
 the console or the logs.
 
 Now switch on a control the YAML does **not** mention: add **Port Block** with
-inbound port `22`, and save. `plan` reports that too:
+blocked inbound port `22`, and save. `plan` reports that too:
 
 ```
 $ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-strict: will be updated
     ! controls.portBlock.enabled: true -> false   (API: port_block.enabled)
-    ! controls.portBlock.inbound: ["22"] -> []   (API: port_block.block_inbound_ports)
+    ! controls.portBlock.blockedInboundPorts: ["22"] -> []   (API: port_block.block_inbound_ports)
 ```
 
 The file is the whole policy: a control it leaves out is off. To keep the port
@@ -134,7 +134,7 @@ Add `enforcement: ReportOnly` at the end of `runtime-policy-strict.yaml`'s
 ```
 $ aquasec-casc apply -f /tmp/playground
 ! RuntimePolicy/casc-playground-strict: drift detected (ReportOnly)
-    ! controls.blockFilelessExec: false -> true   (API: block_fileless_exec)
+    ! controls.blockFilelessExec.enabled: false -> true   (API: block_fileless_exec)
     drift detected; spec.enforcement is ReportOnly, so apply changes nothing
 ```
 

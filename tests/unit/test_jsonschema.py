@@ -73,8 +73,8 @@ def test_crd_schema_actually_inlined_the_nested_models():
     assert "blockNonCompliantImages" in controls["properties"]
 
     drift = controls["properties"]["driftPrevention"]
-    assert "execLockdown" in drift["properties"]
-    assert "exceptions" in drift["properties"]
+    assert "includeScriptFiles" in drift["properties"]
+    assert "allowedProcesses" in drift["properties"]
 
 
 def test_crd_object_nodes_all_declare_a_type():

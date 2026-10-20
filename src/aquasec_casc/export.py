@@ -66,7 +66,9 @@ def _only_what_is_on(value: Any) -> Any:
     lists what the policy does, not everything it does not do.
 
     A section that is off but still holds settings keeps them, with its
-    ``enabled: false``, so applying the export changes nothing.
+    ``enabled: false``, so applying the export changes nothing. One that is on
+    and holds settings drops ``enabled: true``: writing a setting switches the
+    section on.
     """
     if not isinstance(value, dict):
         return value
@@ -74,6 +76,8 @@ def _only_what_is_on(value: Any) -> Any:
            if not _is_off(v)}
     if value.get("enabled") is False and out:
         out = {"enabled": False, **out}
+    elif out.get("enabled") is True and len(out) > 1:
+        del out["enabled"]
     return out
 
 
@@ -90,6 +94,8 @@ def _drop_off_controls(spec: dict, kind: KindDef) -> dict:
     kept = {k[len(under):].split(".")[0] for k in kind.kept_when_unset if k.startswith(under)}
     section = holder[leaf]
     trimmed = _only_what_is_on({k: v for k, v in section.items() if k not in kept})
+    # A control that is on with no settings reads best as one line.
+    trimmed = {k: True if v == {"enabled": True} else v for k, v in trimmed.items()}
     trimmed.update({k: v for k, v in section.items() if k in kept})
     if trimmed:
         holder[leaf] = trimmed

@@ -124,9 +124,7 @@ def test_to_api_nests_controls_the_way_aqua_does():
           controls:
             blockContainerExec: true
             driftPrevention:
-              enabled: true
-              execLockdown: true
-              exceptions: ["redis-*"]
+              allowedProcesses: ["redis-*"]
         """
     )
     api = FIELD_MAP.to_api(canonical_of(resource))
@@ -208,8 +206,7 @@ def test_gates_are_not_read_back_as_canonical_fields():
     """from_api must not invent a canonical field out of a gate."""
     server = {"container_exec": {"enabled": True, "block_container_exec": True}}
     canonical = FIELD_MAP.from_api(server)
-    assert canonical["spec"]["controls"]["blockContainerExec"] is True
-    assert "enabled" not in canonical["spec"]["controls"]
+    assert canonical["spec"]["controls"]["blockContainerExec"] == {"enabled": True}
 
 
 def test_to_api_omits_everything_the_user_did_not_set():
@@ -267,7 +264,7 @@ def test_from_api_ignores_server_owned_fields():
     canonical = FIELD_MAP.from_api(server)
 
     assert canonical["spec"]["enforce"] is False
-    assert canonical["spec"]["controls"]["blockContainerExec"] is True
+    assert canonical["spec"]["controls"]["blockContainerExec"] == {"enabled": True}
     assert "author" not in str(canonical)
     assert "digest" not in str(canonical)
 
@@ -291,9 +288,7 @@ def test_round_trip_is_stable():
             blockNonCompliantImages: false
             blockContainerExec: true
             driftPrevention:
-              enabled: true
-              execLockdown: true
-              exceptions: ["redis-*"]
+              allowedProcesses: ["redis-*"]
         """
     )
     once = FIELD_MAP.to_api(canonical_of(resource))
@@ -311,8 +306,8 @@ def test_read_falls_back_to_an_older_api_name():
     old_tenant = {"block_unregistered_images": True, "limit_new_privileges": True}
     canonical = FIELD_MAP.from_api(old_tenant)
 
-    assert canonical["spec"]["controls"]["onlyRegisteredImages"] is True
-    assert canonical["spec"]["controls"]["noNewPrivileges"] is True
+    assert canonical["spec"]["controls"]["blockUnregisteredImages"] is True
+    assert canonical["spec"]["controls"]["limitNewPrivileges"] is True
 
 
 def test_write_always_uses_the_current_api_name():
@@ -325,7 +320,7 @@ def test_write_always_uses_the_current_api_name():
         spec:
           applicationScopes: ["DevTest"]
           controls:
-            onlyRegisteredImages: true
+            blockUnregisteredImages: true
         """
     )
     api = FIELD_MAP.to_api(canonical_of(resource))
@@ -336,7 +331,7 @@ def test_write_always_uses_the_current_api_name():
 def test_current_name_wins_when_a_tenant_returns_both():
     both = {"only_registered_images": True, "block_unregistered_images": False}
     canonical = FIELD_MAP.from_api(both)
-    assert canonical["spec"]["controls"]["onlyRegisteredImages"] is True
+    assert canonical["spec"]["controls"]["blockUnregisteredImages"] is True
 
 
 def test_resolve_api_path_settles_ambiguity_against_a_real_object():

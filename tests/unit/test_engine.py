@@ -194,7 +194,7 @@ def test_a_control_left_out_goes_off_with_its_gate_and_settings():
         port_block={"enabled": True, "block_inbound_ports": ["22"], "block_outbound_ports": ["25"]},
         fork_guard_process_limit=12,
         block_outdated_images={"enabled": True, "threshold_value": 30, "threshold_unit": "days"})})
-    doc = policy(controls={"portBlock": {"inbound": ["22"]}})
+    doc = policy(controls={"portBlock": {"blockedInboundPorts": ["22"]}})
     reconcile(doc, KIND, aqua, opts())
 
     stored = aqua.objects["devtest-baseline"]

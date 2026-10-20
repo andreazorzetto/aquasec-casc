@@ -198,7 +198,7 @@ def test_a_controls_enabled_gate_joins_the_controls_line(tmp_path):
     aqua = FakeAqua({"devtest-baseline": marked(
         "devtest-baseline", container_exec={"enabled": False, "block_container_exec": False})})
     code, out, _ = run(["plan", "--detailed-exitcode", "-f", str(tmp_path)], aqua)
-    assert ("! controls.blockContainerExec: false -> true   "
+    assert ("! controls.blockContainerExec.enabled: false -> true   "
             "(API: container_exec.block_container_exec + enabled)") in out
     assert "container_exec.enabled:" not in out          # not a separate line
 

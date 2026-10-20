@@ -23,56 +23,87 @@ def api(controls, runtime="container"):
 def test_writing_a_setting_turns_the_section_on():
     """The API's switch and settings are separate; settings under an off switch
     silently do nothing. Writing a setting means you want the control."""
-    body = api({"portBlock": {"inbound": ["22"]}})
+    body = api({"portBlock": {"blockedInboundPorts": ["22"]}})
     assert body["port_block"] == {"enabled": True, "block_inbound_ports": ["22"]}
 
 
 def test_an_explicit_off_is_kept():
-    body = api({"portBlock": {"enabled": False, "inbound": ["22"]}})
+    body = api({"portBlock": {"enabled": False, "blockedInboundPorts": ["22"]}})
     assert body["port_block"]["enabled"] is False
 
 
-def test_drift_prevention_follows_the_same_rule():
-    assert api({"driftPrevention": {"execLockdown": True}})["drift_prevention"]["enabled"] is True
+@pytest.mark.parametrize("value", [True, False])
+def test_true_and_false_are_shorthand_for_a_section(value):
+    assert api({"fileBlock": value})["file_block"] == {"enabled": value}
+
+
+def test_exec_controls_carry_their_allowed_processes_and_gates():
+    body = api({"blockContainerExec": {"allowedProcesses": ["/bin/sh"]},
+                "blockReverseShell": {"whitelistedIps": ["10.0.0.0/8"]},
+                "blockFilelessExec": {"allowedProcesses": ["python"]}})
+    assert body["container_exec"] == {"enabled": True, "block_container_exec": True,
+                                      "container_exec_proc_white_list": ["/bin/sh"]}
+    assert body["reverse_shell"] == {"enabled": True, "block_reverse_shell": True,
+                                     "reverse_shell_ip_white_list": ["10.0.0.0/8"]}
+    assert body["block_fileless_exec"] is True
+    assert body["block_fileless_exec_proc_white_list"] == ["python"]
+
+
+def test_drift_prevention_switch_writes_exec_lockdown_too():
+    """The console's one switch; enabled and exec_lockdown are equal on every
+    console-made policy."""
+    body = api({"driftPrevention": {"includeScriptFiles": True}})
+    assert body["drift_prevention"] == {"enabled": True, "exec_lockdown": True,
+                                        "exec_lockdown_scripts": True}
 
 
 def test_section_names_map_to_the_api():
-    body = api({"limitContainerPrivileges": {"hostNetwork": True, "ownerUserContext": True},
+    body = api({"limitContainerPrivileges": {"hostNetwork": True},
                 "blockOutdatedImages": {"olderThan": 2, "unit": "weeks"},
-                "forensics": {"processCommandLine": True}})
-    assert body["limit_container_privileges"] == {"enabled": True, "netmode": True,
-                                                  "use_host_user": True}
+                "forensics": {"fullCommandArguments": True},
+                "fileIntegrityMonitoring": {"create": True, "monitor": {"paths": ["/etc/*"]},
+                                            "exclude": {"users": ["root"]}}})
+    assert body["limit_container_privileges"] == {"enabled": True, "netmode": True}
     assert body["block_outdated_images"] == {"enabled": True, "threshold_value": 2,
                                              "threshold_unit": "weeks"}
     assert body["auditing"] == {"enabled": True, "audit_process_cmdline": True}
+    assert body["file_integrity_monitoring"] == {
+        "enabled": True, "monitored_files_create": True, "monitored_files": ["/etc/*"],
+        "exceptional_monitored_files_users": ["root"]}
 
 
-@pytest.mark.parametrize("controls,runtime,message", [
-    ({"readonlyFiles": {"files": ["/etc/passwd"]}}, "container", "not available on container"),
-    ({"blockOutdatedImages": {"olderThan": 2, "unit": "days"}}, "host", "only available on container"),
-])
-def test_sections_aqua_refuses_for_the_runtime_type_fail_validation(controls, runtime, message):
-    with pytest.raises(SchemaError, match=message):
-        load_document(doc(controls, runtime), "t.yaml")
+def test_blocking_outdated_images_on_a_host_fails_validation():
+    with pytest.raises(SchemaError, match="only available on container"):
+        load_document(doc({"blockOutdatedImages": {"olderThan": 2, "unit": "days"}}, "host"), "t.yaml")
 
 
-def test_switched_off_they_are_fine_anywhere():
-    """Aqua returns both sections, off, on every policy -- exports carry them."""
-    api({"readonlyFiles": {"enabled": False}}, "container")
+def test_switched_off_it_is_fine_on_a_host():
+    """Aqua returns it, off, on every policy -- exports carry it."""
     api({"blockOutdatedImages": {"enabled": False, "olderThan": 0}}, "host")
 
 
-def test_read_only_files_are_fine_on_hosts():
-    assert api({"readonlyFiles": {"files": ["/etc/passwd"]}}, "host")["readonly_files"]["enabled"]
-
-
 @pytest.mark.parametrize("controls", [
-    {"fileIntegrityMonitoring": {"monitorRead": True}},
-    {"fileIntegrityMonitoring": {"monitorAttributes": True}},
-    {"malwareProtection": {"includeDirectories": ["/*"]}},
+    {"fileIntegrityMonitoring": {"read": True}},
+    {"fileIntegrityMonitoring": {"attributes": True}},
+    {"realTimeMalwareProtection": {"includeDirectories": ["/*"]}},
 ])
 def test_settings_aqua_will_not_keep_are_not_offered(controls):
     """Write-tested: Aqua drops, refuses on update, or overwrites these."""
+    with pytest.raises(SchemaError, match="unknown field"):
+        load_document(doc(controls), "t.yaml")
+
+
+@pytest.mark.parametrize("controls", [
+    {"capabilitiesBlock": {"capabilities": ["NET_RAW"]}},
+    {"readonlyFiles": {"files": ["/etc/passwd"]}},
+    {"failedKubernetesChecks": {"checks": ["x"]}},
+    {"driftPrevention": {"imageLockdown": True}},
+    {"limitContainerPrivileges": {"ownerUserContext": True}},
+    {"executablesAllowed": {"rootExecutables": ["sh"]}},
+    {"fileBlock": {"users": ["root"]}},
+    {"packageBlock": {"processes": ["sh"]}},
+])
+def test_settings_the_console_does_not_show_are_not_offered(controls):
     with pytest.raises(SchemaError, match="unknown field"):
         load_document(doc(controls), "t.yaml")
 
@@ -99,7 +130,14 @@ def test_controls_that_are_off_are_not_exported():
         block_outdated_images={"enabled": False, "threshold_value": 0, "threshold_unit": ""},
         malware_scan_options={"enabled": False, "action": "", "exclude_directories": []},
         port_block={"enabled": True, "block_inbound_ports": ["22"], "block_outbound_ports": []})
-    assert doc["spec"]["controls"] == {"portBlock": {"enabled": True, "inbound": ["22"]}}
+    assert doc["spec"]["controls"] == {"portBlock": {"blockedInboundPorts": ["22"]}}
+
+
+def test_a_control_on_with_no_settings_is_exported_as_true():
+    doc, _ = _export_one(file_block={"enabled": True, "filename_block_list": []},
+                         container_exec={"enabled": True, "block_container_exec": True,
+                                         "container_exec_proc_white_list": None})
+    assert doc["spec"]["controls"] == {"fileBlock": True, "blockContainerExec": True}
 
 
 def test_a_section_off_with_settings_keeps_them_and_applying_changes_nothing():
@@ -110,15 +148,16 @@ def test_a_section_off_with_settings_keeps_them_and_applying_changes_nothing():
         port_block={"enabled": False, "block_inbound_ports": ["22"], "block_outbound_ports": []},
         container_exec={"enabled": False, "block_container_exec": False,
                         "container_exec_proc_white_list": ["sh"]})
-    assert doc["spec"]["controls"] == {"portBlock": {"enabled": False, "inbound": ["22"]},
-                                       "containerExecAllowedProcesses": ["sh"]}
+    assert doc["spec"]["controls"] == {
+        "portBlock": {"enabled": False, "blockedInboundPorts": ["22"]},
+        "blockContainerExec": {"enabled": False, "allowedProcesses": ["sh"]}}
     resource = load_document(doc, "p.yaml")[0]
     r = reconcile(resource, registry.get("RuntimePolicy"), aqua, Options(instance="x"))
     assert r.outcome is Outcome.ADOPTED and [c.path for c in r.plan.changes] == ["description"]
 
 
 def test_secure_ai_sections_map_to_the_api():
-    body = api({"secureAiDiscovery": {"ignore": ["OpenAI@gpt-4o"]},
+    body = api({"secureAiDiscovery": {"ignoreList": ["OpenAI@gpt-4o"]},
                 "secureAiUnauthorizedModels": {"models": ["DeepSeek@*", "Inference-Server@llama3"]}})
     assert body["secure_ai_discovery"] == {"enabled": True, "ignore_list": ["OpenAI@gpt-4o"]}
     assert body["secure_ai_unauthorized_models"] == {
@@ -135,7 +174,7 @@ def test_secure_ai_entries_must_be_service_at_model(entry):
 def test_secure_ai_is_kept_in_enforce_mode_and_on_hosts():
     """The console switches Secure AI off in enforce mode; the API keeps it as
     written (write-tested), so the tool sends what the file says."""
-    resource = load_document({**doc({"secureAiDiscovery": {"ignore": ["OpenAI@*"]}}, "host"),
+    resource = load_document({**doc({"secureAiDiscovery": {"ignoreList": ["OpenAI@*"]}}, "host"),
                               }, "t.yaml")[0]
     resource.spec.enforce = True
     body = FIELD_MAP.to_api(resource.model_dump(exclude_unset=True, mode="json"))

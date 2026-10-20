@@ -105,9 +105,8 @@ def test_import_of_a_real_policy_produces_canonical_fields(policy):
     assert spec["enforce"] is False
     assert spec["applicationScopes"] == ["Global"]
     assert controls["blockNonCompliantImages"] is True
-    assert controls["blockContainerExec"] is True
+    assert controls["blockContainerExec"]["enabled"] is True
     assert controls["driftPrevention"]["enabled"] is True
-    assert controls["driftPrevention"]["execLockdown"] is True
 
 
 def test_import_drops_server_owned_fields(policy):

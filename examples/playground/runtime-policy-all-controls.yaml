@@ -6,10 +6,13 @@
 # recent images; no exec; only "cat" may run): it is a reference for what each
 # control is called, not a policy to roll out.
 #
+# Names are the console's labels in camelCase. A control left out is off.
+#
 # Not here, on purpose:
-#   Fork Guard, Read-Only Files                 deprecated for containers; Aqua
-#                                               refuses Read-Only Files here
+#   Fork Guard                                  deprecated by Aqua
 #   Bypass Scope                                Aqua's default policies only
+#   Secure AI - Protection                      needs prompt protection set up
+#                                               first; not covered by the tool
 apiVersion: config.aquasec.com/v1alpha1
 kind: RuntimePolicy
 metadata:
@@ -24,32 +27,32 @@ spec:
   controls:
     # Images and workloads
     blockNonCompliantImages: true
-    blockNonCompliantWorkloads: true
-    onlyRegisteredImages: true
-    blockNonK8sContainers: true
+    blockNonCompliantResources: true
+    blockUnregisteredImages: true
+    blockNonKubernetesContainers: true
     # Processes
-    blockContainerExec: true
-    containerExecAllowedProcesses:
-      # the console's default: AWS ECS Exec's agents
-      - /ecs-execute-command-*/amazon-ssm-agent
-      - /ecs-execute-command-*/ssm-session-worker
-      - /ecs-execute-command-*/ssm-agent-worker
-    blockReverseShell: true
-    blockFilelessExec: true
-    noNewPrivileges: true
+    blockContainerExec:
+      allowedProcesses:
+        # the console's default: AWS ECS Exec's agents
+        - /ecs-execute-command-*/amazon-ssm-agent
+        - /ecs-execute-command-*/ssm-session-worker
+        - /ecs-execute-command-*/ssm-agent-worker
+    blockReverseShell:
+      allowedProcesses: ["sshd"]
+      whitelistedIps: ["10.0.0.0/8"]
+    blockFilelessExec:
+      allowedProcesses: ["python*"]
+    limitNewPrivileges: true
     driftPrevention:
-      enabled: true
-      execLockdown: true
-      imageLockdown: true
-      execLockdownScripts: true
-      inheritToChild: true
+      includeScriptFiles: true
+      allowedProcesses: ["redis-*"]
+      applyToChildProcesses: true
     # Network and behaviour
     blockCryptocurrencyMining: true
-    enableIpReputation: true
-    enablePortScanProtection: true
-    auditBruteForceLogin: true
+    dnsIpReputation: true
+    portScanningDetection: true
 
-    # --- sections: writing a setting switches the section on -----------------
+    # --- with settings: writing a setting switches the control on -------------
     limitContainerPrivileges:
       privileged: true
       hostNetwork: true
@@ -60,9 +63,6 @@ spec:
       rootUser: true
       lowPortBinding: true
       addCapabilities: true
-      ownerUserContext: true
-    capabilitiesBlock:
-      capabilities: ["NET_RAW", "SYS_ADMIN", "SYS_PTRACE"]
     executablesBlocked:
       executables: ["nc", "ncat", "wget", "curl"]
     executablesAllowed:
@@ -75,32 +75,34 @@ spec:
       olderThan: 6
       unit: months
     portBlock:
-      inbound: ["22", "23"]
-      outbound: ["25", "6667"]
+      blockedInboundPorts: ["22", "23"]
+      blockedOutboundPorts: ["25", "6667"]
     fileBlock:
       files: ["/etc/shadow", "/root/.ssh/*"]
     packageBlock:
       packages: ["netcat*", "nmap"]
     fileIntegrityMonitoring:
-      paths: ["/etc/*", "/bin/*", "/usr/bin/*"]
-      exceptions: ["/etc/hosts", "/etc/resolv.conf"]
-      monitorCreate: true
-      monitorModify: true
-      monitorDelete: true
-    malwareProtection:
+      create: true
+      modify: true
+      delete: true
+      monitor:                         # the console's Monitor tab
+        paths: ["/etc/*", "/bin/*", "/usr/bin/*"]
+      exclude:                         # and its Exclude tab
+        paths: ["/etc/hosts", "/etc/resolv.conf"]
+    realTimeMalwareProtection:
       action: block
-      excludeDirectories: ["/proc/*", "/sys/*"]
-      fileForensicCollection: true
-      memoryDumpCollection: true
+      excludedPaths: ["/proc/*", "/sys/*"]
+      collectForensicFiles: true
+      collectSelectiveMemoryDumps: true
     forensics:
       allProcesses: true
-      processCommandLine: true
+      fullCommandArguments: true
       allNetwork: true
     systemIntegrityMonitoring:
-      systemTimeChanges: true
+      systemTime: true
     # Secure AI: audit only. The console switches these off in enforce mode;
     # Aqua keeps them as written, so they are stored as written here too.
     secureAiDiscovery:
-      ignore: ["OpenAI@gpt-4o-mini"]   # Service@model; Service@* for all its models
+      ignoreList: ["OpenAI@gpt-4o-mini"]   # Service@model; Service@* for all its models
     secureAiUnauthorizedModels:
       models: ["DeepSeek@*", "Inference-Server@*"]

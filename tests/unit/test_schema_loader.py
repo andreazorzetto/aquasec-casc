@@ -331,7 +331,7 @@ def test_shipped_examples_are_valid():
     devtest = next(r for r in result.resources if r.metadata.name == "devtest-baseline")
     assert devtest.spec.enforce is False
     assert devtest.spec.controls.blockNonCompliantImages is False
-    assert devtest.spec.controls.driftPrevention.exceptions == ["redis-*"]
+    assert devtest.spec.controls.driftPrevention.allowedProcesses == ["redis-*"]
 
 
 # --------------------------------------------------------------------------- #
