@@ -36,10 +36,28 @@ def _pluralise(singular: str) -> str:
     return singular + "s"
 
 
-def for_kind(kind: str) -> dict[str, Any]:
+def _allow_the_shorthand(node: Any, sections: set[str]) -> Any:
+    """``blockContainerExec: true``: a control with settings may also be a bare
+    true or false, which the models accept before they validate, so their schema
+    does not show it."""
+    if isinstance(node, list):
+        return [_allow_the_shorthand(item, sections) for item in node]
+    if not isinstance(node, dict):
+        return node
+    ref = node.get("$ref", "")
+    if ref.rsplit("/", 1)[-1] in sections:
+        return {"anyOf": [dict(node), {"type": "boolean"}]}
+    return {key: _allow_the_shorthand(value, sections) for key, value in node.items()}
+
+
+def for_kind(kind: str, *, shorthand: bool = True) -> dict[str, Any]:
     """JSON Schema for one kind, with $refs left intact."""
     kind_def = registry.get(kind)
     schema = kind_def.model.model_json_schema(mode="validation")
+    if shorthand:
+        sections = {name for name, sub in schema.get("$defs", {}).items()
+                    if "enabled" in (sub.get("properties") or {}) and name != "BypassScope"}
+        schema = _allow_the_shorthand(schema, sections)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = f"https://{GROUP}/{VERSION}/{kind}.schema.json"
     schema["title"] = kind
@@ -150,7 +168,9 @@ def crd_for_kind(kind: str, plural: str | None = None) -> dict[str, Any]:
     Phase 2 ships these. They are generated rather than hand-written so the CRDs
     and the CLI's validation cannot drift apart.
     """
-    schema = for_kind(kind)
+    # A CRD's structural schema cannot hold "an object, or a boolean". Phase 2
+    # has to settle that; until then a CRD takes the long form only.
+    schema = for_kind(kind, shorthand=False)
     defs = schema.get("$defs", {})
     flat = _strip_for_crd(_collapse_unions(_inline_refs(schema, defs)))
 

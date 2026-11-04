@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from .reconcile import marker
 from .reconcile.client import AquaClient
+from .reconcile.engine import is_shipped
 from .schema.base import API_VERSION
 from .schema.registry import KindDef
 
@@ -82,15 +83,19 @@ def _only_what_is_on(value: Any) -> Any:
 
 
 def _drop_off_controls(spec: dict, kind: KindDef) -> dict:
-    if not kind.off_when_unset:
-        return spec
-    *parents, leaf = kind.off_when_unset.split(".")[1:]     # below "spec"
+    for prefix in kind.off_when_unset:
+        spec = _drop_off_under(spec, kind, prefix)
+    return spec
+
+
+def _drop_off_under(spec: dict, kind: KindDef, prefix: str) -> dict:
+    *parents, leaf = prefix.split(".")[1:]     # below "spec"
     holder = spec
     for part in parents:
         holder = holder.get(part) or {}
     if not isinstance(holder.get(leaf), dict):
         return spec
-    under = kind.off_when_unset + "."
+    under = prefix + "."
     kept = {k[len(under):].split(".")[0] for k in kind.kept_when_unset if k.startswith(under)}
     section = holder[leaf]
     trimmed = _only_what_is_on({k: v for k, v in section.items() if k not in kept})
@@ -143,28 +148,29 @@ def export_kind(
     taken: set[str] = set()
 
     summaries = client.list(kind)
-    for summary in sorted(summaries, key=lambda s: str(s.get(kind.name_field, ""))):
+    for summary in sorted(summaries, key=lambda s: str(kind.key_of(s) or "")):
         name = summary.get(kind.name_field)
         if not name:
             continue
+        key = kind.key_of(summary)
         if scope is not None and scope not in (summary.get("application_scopes") or []):
             continue
-        if names and not any(fnmatch.fnmatchcase(name, pattern) for pattern in names):
+        if names and not any(fnmatch.fnmatchcase(n, pattern) for n in (key, name) for pattern in names):
             continue
 
-        full = client.get(kind, name)
+        full = client.get(kind, key)
         if full is None:
-            result.skipped.append(Skipped(name, "disappeared while exporting"))
+            result.skipped.append(Skipped(key, "disappeared while exporting"))
             continue
 
         found = marker.owner(full.get("description"))
         if found and found != instance:
             result.skipped.append(Skipped(
-                name, f"managed by another instance ({marker.PREFIX}{found})"))
+                key, f"managed by another instance ({marker.PREFIX}{found})"))
             continue
 
         api_view = dict(full)
-        shipped = bool(kind.builtin_field and full.get(kind.builtin_field) is True)
+        shipped = is_shipped(kind, full)
         for prefix, allowed in kind.only_on.items():
             # Every object may carry the field in the API (disabled); writing it
             # into YAML for an object that cannot have it would make the first
@@ -172,13 +178,19 @@ def export_kind(
             if not (shipped and name in allowed):
                 api_view.pop(prefix.split(".")[0], None)
         spec = _drop_off_controls(_prune(kind.field_map.from_api(api_view).get("spec", {})), kind)
+        # Aqua holds empty criteria and exclusions on a policy without any.
+        if not (spec.get("additionalScopeCriteria") or {}).get("variables"):
+            spec.pop("additionalScopeCriteria", None)
+        if not spec.get("excludeApplicationScopes"):
+            spec.pop("excludeApplicationScopes", None)
         text = marker.strip(full.get("description"))
         if text:
             spec["description"] = text
         else:
             spec.pop("description", None)
 
-        slug = slugify(name)
+        # Names repeat across a kind's types ("Default"), so the type leads.
+        slug = slugify(key.replace("/", "-"))
         base, n = slug, 2
         while slug in taken:
             slug = f"{base}-{n}"[:253]
@@ -199,11 +211,11 @@ def export_kind(
         except ValidationError as exc:
             first = exc.errors()[0]
             where = ".".join(str(p) for p in first["loc"])
-            result.skipped.append(Skipped(name, f"does not fit the schema ({where}: {first['msg']})"))
+            result.skipped.append(Skipped(key, f"does not fit the schema ({where}: {first['msg']})"))
             continue
 
         result.exported.append(Exported(
-            aqua_name=name,
+            aqua_name=key,
             filename=f"{kind_filename_prefix(kind.kind)}-{slug}.yaml",
             document=document,
             shipped=shipped,

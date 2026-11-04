@@ -75,6 +75,12 @@ class FieldMapping:
     note: str = ""
     """Why this mapping is non-obvious, for whoever reads the table next."""
 
+    items: dict[str, str] | None = None
+    """For a list of objects: each item's YAML field -> API field.
+
+    Written with every field present, "" for those left out, because that is how
+    Aqua stores them; read back without the empty ones."""
+
 
 def get_path(obj: Any, dotted: str, default: Any = MISSING) -> Any:
     """Read a dotted path out of nested dicts, returning ``default`` if absent."""
@@ -97,6 +103,19 @@ def set_path(obj: dict, dotted: str, value: Any) -> None:
             current[part] = existing
         current = existing
     current[parts[-1]] = value
+
+
+def _items_to_api(value: Any, items: dict[str, str]) -> Any:
+    if not isinstance(value, list):
+        return value
+    return [{api: item.get(field, "") for field, api in items.items()} for item in value]
+
+
+def _items_from_api(value: Any, items: dict[str, str]) -> Any:
+    if not isinstance(value, list):
+        return value
+    return [{field: item[api] for field, api in items.items() if item.get(api) not in (None, "")}
+            for item in value]
 
 
 def has_path(obj: Any, dotted: str) -> bool:
@@ -154,6 +173,8 @@ class FieldMap:
         for mapping in self.mappings:
             value = get_path(canonical, mapping.canonical)
             if value is not MISSING:
+                if mapping.items:
+                    value = _items_to_api(value, mapping.items)
                 set_path(api, mapping.api, value)
                 for gate in mapping.also_set:
                     set_path(api, gate, value)
@@ -171,9 +192,18 @@ class FieldMap:
             for path in (mapping.api, *mapping.api_aliases):
                 value = get_path(api, path)
                 if value is not MISSING:
+                    if mapping.items:
+                        value = _items_from_api(value, mapping.items)
                     set_path(canonical, mapping.canonical, value)
                     break
         return canonical
+
+    def from_api_path(self, api_path: str, canonical: dict) -> Any:
+        """The value in a canonical document of the field mapped to ``api_path``."""
+        for m in self.mappings:
+            if m.api == api_path:
+                return get_path(canonical, m.canonical)
+        raise KeyError(api_path)
 
     def switched_off(self, canonical: dict, actual: dict, under: str,
                      keep: tuple[str, ...] = ()) -> dict:

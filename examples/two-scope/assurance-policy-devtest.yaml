@@ -1,0 +1,19 @@
+# Dev/test: the same checks, for information. Audited, and nothing is marked
+# non-compliant, because nothing here should block anything.
+apiVersion: config.aquasec.com/v1alpha1
+kind: AssurancePolicy
+metadata:
+  name: devtest-images
+spec:
+  assuranceType: image
+  description: Dev/test image assurance -- audit only
+  applicationScopes:
+    - DevTest
+  actions:
+    createAuditMessage: true
+  exceptions:
+    ignoreNoFix: true
+  controls:
+    vulnerabilitySeverity:
+      severity: high
+    malware: true

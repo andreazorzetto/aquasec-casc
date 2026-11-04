@@ -413,3 +413,27 @@ def test_a_document_without_spec_is_rejected(tmp_path):
     with pytest.raises(SchemaError) as exc:
         load_file(path)
     assert "spec: required" in exc.value.render()
+
+
+def test_a_mounted_configmap_is_read_once(tmp_path):
+    """Kubernetes mounts each key as a link into a hidden, timestamped folder."""
+    real = tmp_path / "..2026_11_04_10_00_00.123456"
+    real.mkdir()
+    (tmp_path / "..data").symlink_to(real.name)
+    body = """
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata: {name: p}
+spec: {applicationScopes: [Global]}
+"""
+    (real / "policy.yaml").write_text(body)
+    (real / "aquasec-casc.yaml").write_text("instance: x\n")
+    for name in ("policy.yaml", "aquasec-casc.yaml"):
+        (tmp_path / name).symlink_to(f"..data/{name}")
+    assert [r.metadata.name for r in load_dir(tmp_path).resources] == ["p"]
+
+
+def test_hidden_folders_are_not_configuration(tmp_path):
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "ci.yaml").write_text("on: push\n")
+    assert load_dir(tmp_path).resources == []

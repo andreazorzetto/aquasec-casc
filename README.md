@@ -10,26 +10,66 @@ YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
 - **Run once and exit.** From a laptop, a CI job, or an Argo CD PreSync hook.
 - **Stateless.** Ownership is a marker line in each object's description
   (`managed-by: aquasec-casc/<instance>`); there is no state file.
-- **The file is the whole policy.** A control the YAML leaves out is off, so a
-  control switched on in the console is drift. Fields that are not controls,
-  and ones the tool does not cover yet, stay with the console.
+- **The file is the whole policy.** What the YAML leaves out of a policy's controls
+  is off, so a control switched on in the console is drift. Settings the tool does
+  not cover stay with the console, and each is [listed](docs/schema-reference.md#not-offered).
 - **Git-driven deletion**, with guardrails: only this instance's objects, never
   Aqua's own, never on an empty run.
+- **It checks what it wrote.** Aqua silently drops fields it does not know, and
+  versions differ, so `apply` reads each object back and fails if a field was not kept.
 
-Supported today: **runtime policies**.
+Supported: **runtime policies** (container, host, function) and **assurance policies**
+(image, host, function, Kubernetes, VMware Tanzu). Every control has been
+[written and read back](tests/integration/test_every_field.py) against a live tenant.
 
-## Try it
+## A policy
 
-[docs/try-it.md](docs/try-it.md) is a fifteen-minute guided tour against your
-own tenant, using the safe playground in [examples/playground](examples/playground).
-
-## Install
-
-```sh
-python3 -m venv .venv && .venv/bin/pip install -e .
+```yaml
+apiVersion: config.aquasec.com/v1alpha1
+kind: RuntimePolicy
+metadata:
+  name: prod-baseline
+spec:
+  enforce: true
+  applicationScopes: [AccProd]
+  controls:
+    blockNonCompliantImages: true
+    blockContainerExec: true
+    driftPrevention:
+      allowedProcesses: ["redis-*"]
 ```
 
-Python 3.11+. Talks to Aqua through [aquasec-lib](https://pypi.org/project/aquasec/).
+```
+$ aquasec-casc plan -f aqua/
+~ RuntimePolicy/prod-baseline: will be updated
+    ! controls.blockNonCompliantImages: false -> true   (API: block_disallowed_images)
+0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
+```
+
+## Quick start
+
+[docs/try-it.md](docs/try-it.md) is a fifteen-minute guided tour against your own
+tenant, using the safe playground in [examples/playground](examples/playground).
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install .     # Python 3.11+
+source .venv/bin/activate
+
+export AQUA_URL=https://aqua.internal.example        # self-hosted Aqua
+export AQUA_USER=... AQUA_PASSWORD=...
+export AQUA_CA_BUNDLE=/path/to/internal-ca.pem       # if it has an internal CA
+
+aquasec-casc validate -f examples/playground         # no network
+aquasec-casc plan -f examples/playground             # read-only
+```
+
+Or run the image, which is what CI and Argo CD do:
+
+```sh
+docker run --rm --read-only -v "$PWD/examples/playground:/config:ro" \
+  -e AQUA_URL -e AQUA_USER -e AQUA_PASSWORD \
+  andreazorzetto/aquasec-casc:0.1.0 plan -f /config
+```
 
 ## Configure
 
@@ -46,6 +86,10 @@ aquasec-casc profile list | show [NAME] | set-default NAME | delete NAME
 The **instance name** goes in `aquasec-casc.yaml` at the root of the config
 folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 
+TLS is verified by default. Point `AQUA_CA_BUNDLE` at an internal CA.
+`AQUA_TLS_INSECURE=true` skips verification, and the password goes over the
+unverified connection with it, so keep it to throwaway labs.
+
 ## Commands
 
 | Command | |
@@ -56,10 +100,43 @@ folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 | `export --scope S -o DIR` | Write existing configuration as YAML, ready to adopt. Read-only. |
 | `release` | Stop managing objects without deleting them; `--to` hands them over. |
 | `destroy [-f DIR]` | Delete what the files describe, or everything this instance manages. Asks first. |
+| `schema KIND` | Print a kind's JSON Schema, for editors and CI. |
 | `setup`, `profile` | Save and manage credential profiles. |
+
+Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 when
+`plan` or `apply` leaves changes pending. `--output json` on every command.
 
 ## Documentation
 
-- [docs/try-it.md](docs/try-it.md): guided tour
-- [docs/schema-examples.md](docs/schema-examples.md): the YAML, field by field
-- [docs/architecture.md](docs/architecture.md): how it works, and why
+| | |
+|---|---|
+| [docs/argocd.md](docs/argocd.md) | **Setting it up in Argo CD**, and mirroring the image into an air-gapped registry |
+| [docs/adoption.md](docs/adoption.md) | Bringing an already configured tenant under management |
+| [docs/try-it.md](docs/try-it.md) | A guided tour against your own tenant |
+| [docs/demo.md](docs/demo.md) | The demo: from export to drift correction, with exact commands |
+| [docs/schema-reference.md](docs/schema-reference.md) | Every field, its API name, and what is not offered and why |
+| [docs/schema-examples.md](docs/schema-examples.md) | The YAML in use |
+| [docs/architecture.md](docs/architecture.md) | How it works, and why |
+| [examples/github-actions](examples/github-actions) | A GitHub Actions workflow: plan on a pull request, apply on merge |
+
+## Limits, plainly
+
+- **It corrects drift when it runs, and at no other time.** A console change stays
+  until the next run. Schedule the run if that gap matters; closing it properly is what
+  an operator would do, and that is a later phase.
+- **A rename is a delete and a create**, because Aqua has no rename. Enforcement can
+  lapse only if the new policy fails, since creates run before deletes.
+- **Field support varies by Aqua version.** The tool was tested against SaaS and
+  self-hosted 2022.4; a field a version lacks is reported at `apply`, not guessed at.
+- **One Aqua instance per run**, and no scheduling of its own.
+
+## Roadmap
+
+Enforcer groups, with the registration token kept out of logs and Git; application
+scopes; a Kubernetes operator with these same objects as CRDs, for continuous
+correction. Users, roles, registries, notifications and response policies are not
+planned, and neither is parity with the Terraform provider.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

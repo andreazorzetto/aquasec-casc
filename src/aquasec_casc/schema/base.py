@@ -45,6 +45,7 @@ class StrictModel(BaseModel):
         populate_by_name=True,
         use_enum_values=False,
         validate_default=False,
+        use_attribute_docstrings=True,
     )
 
 

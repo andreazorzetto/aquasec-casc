@@ -4,9 +4,11 @@ About fifteen minutes, from your laptop, against any Aqua tenant you can sign in
 to. Every step below was run against a live SaaS tenant, and the output shown is
 what it printed.
 
-**It is safe on a shared tenant.** The playground policies are **disabled**, so
-they exist but do nothing; they are scoped to `Global` because every tenant has
-it; their names start with `casc-playground-`; and the last step deletes them.
+**It is safe on a shared tenant.** The playground's runtime policies are
+**disabled**, so they exist but do nothing. Assurance policies have no such switch,
+so its assurance policy is scoped to image names that match nothing. They are scoped
+to `Global` because every tenant has it; their names start with `casc-playground-`;
+and the last step deletes them.
 The tool only ever deletes objects carrying its own marker for this instance
 (`managed-by: aquasec-casc/playground`), so nothing else on the tenant is at risk.
 
@@ -48,7 +50,7 @@ The instance name, `playground`, comes from `aquasec-casc.yaml` in the folder.
 
 ```
 $ aquasec-casc validate -f /tmp/playground
-3 resource(s) valid
+4 resource(s) valid
 ```
 
 Try a typo (`enforcee: false`) to see the error: the file, the path, and a
@@ -59,22 +61,24 @@ a typo'd control would otherwise be accepted and silently do nothing.
 
 ```
 $ aquasec-casc plan -f /tmp/playground
++ AssurancePolicy/casc-playground-image: will be created
 + RuntimePolicy/casc-playground-all-controls: will be created
 + RuntimePolicy/casc-playground-baseline: will be created
 + RuntimePolicy/casc-playground-strict: will be created
-0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 3 planned
+0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 4 planned
 
 $ aquasec-casc apply -f /tmp/playground
++ AssurancePolicy/casc-playground-image: created
 + RuntimePolicy/casc-playground-all-controls: created
 + RuntimePolicy/casc-playground-baseline: created
 + RuntimePolicy/casc-playground-strict: created
-0 unchanged, 3 created, 0 updated, 0 adopted, 0 deleted
+0 unchanged, 4 created, 0 updated, 0 adopted, 0 deleted
 
 $ aquasec-casc plan -f /tmp/playground
-3 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
+4 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
 ```
 
-In the console (Policies → Runtime Policies), each description now ends with
+In the console (Policies → Runtime Policies, Assurance Policies), each description now ends with
 `managed-by: aquasec-casc/playground`. That line is how the tool knows the
 policy is its own -- there is no state file.
 
@@ -86,7 +90,7 @@ In `runtime-policy-baseline.yaml`, set `enforce: true`:
 $ aquasec-casc plan -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: will be updated
     ! enforce: false -> true
-2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
+3 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
 
 $ aquasec-casc apply -f /tmp/playground
 ~ RuntimePolicy/casc-playground-baseline: updated
@@ -124,6 +128,18 @@ $ aquasec-casc plan -f /tmp/playground
 
 The file is the whole policy: a control it leaves out is off. To keep the port
 block, write it into the YAML; to switch a control off, remove it.
+
+Assurance policies behave the same. In `assurance-policy-image.yaml`, remove the line
+`malware: true`:
+
+```
+$ aquasec-casc plan -f /tmp/playground
+~ AssurancePolicy/casc-playground-image: will be updated
+    ! controls.malware.enabled: true -> false   (API: disallow_malware)
+```
+
+Put it back before moving on. Their `actions` and `exceptions` are treated like
+controls, too: what the file leaves out is off.
 
 ## 5. Report only
 

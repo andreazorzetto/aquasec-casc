@@ -263,6 +263,11 @@ def load_dir(path: Path | str) -> LoadResult:
     for file in sorted(p for p in path.rglob("*") if p.suffix in YAML_SUFFIXES):
         if file.parent == path and file.name in CONFIG_FILENAMES:
             continue
+        # A mounted ConfigMap holds every file twice: as a link at the top, and
+        # for real in a hidden "..2026_11_04..." folder. Hidden folders are not
+        # configuration: .git, .github.
+        if any(part.startswith(".") for part in file.relative_to(path).parts[:-1]):
+            continue
         try:
             loaded = load_file(file)
         except SchemaError as exc:
@@ -288,6 +293,17 @@ def load_dir(path: Path | str) -> LoadResult:
                 )
             )
         seen[key] = resource
+
+    # Two names can still address one object, through spec.aquaName.
+    addressed: dict[tuple[str, str], Resource] = {}
+    for resource in result.resources:
+        key = (resource.kind, registry.get(resource.kind).key(resource))
+        if key in addressed and addressed[key].metadata.name != resource.metadata.name:
+            group.errors.append(SchemaError(str(path), [SchemaProblem(
+                "spec.aquaName",
+                f"{addressed[key].ref} and {resource.ref} both describe the Aqua object "
+                f"{key[1]!r}")]))
+        addressed[key] = resource
 
     if group:
         raise group

@@ -1,0 +1,25 @@
+# Acceptance/production: images with high or critical vulnerabilities that have a
+# fix, or with malware, are marked non-compliant, and fail the CI step.
+#
+# A non-compliant verdict follows the image's hash, wherever an enforcer sees it:
+# see runtime-policy-devtest.yaml for how dev/test stays out of it.
+apiVersion: config.aquasec.com/v1alpha1
+kind: AssurancePolicy
+metadata:
+  name: accprod-images
+spec:
+  assuranceType: image
+  description: Acceptance/production image assurance
+  applicationScopes:
+    - AccProd
+  actions:
+    createAuditMessage: true
+    failCicd: true
+    markNonCompliant: true
+  exceptions:
+    ignoreNoFix: true
+  controls:
+    vulnerabilitySeverity:
+      severity: high
+    malware: true
+    sensitiveData: true

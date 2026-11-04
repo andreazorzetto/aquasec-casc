@@ -46,26 +46,26 @@ class DestroyOptions:
     kinds: tuple[KindDef, ...] = field(default_factory=lambda: tuple(REGISTRY.values()))
 
 
-def _selected(name: str, names: tuple[str, ...]) -> bool:
-    return not names or any(fnmatch.fnmatchcase(name, p) for p in names)
+def _selected(kind: KindDef, key: str, names: tuple[str, ...]) -> bool:
+    return not names or any(fnmatch.fnmatchcase(n, p) for n in (key, kind.name_of(key)) for p in names)
 
 
 def _targets(client: AquaClient, kind: KindDef, options: DestroyOptions,
              summary: RunSummary) -> list[tuple[str, str]]:
-    """``(file name, Aqua name)`` pairs to consider, in a stable order."""
+    """``(file name, key in Aqua)`` pairs to consider, in a stable order."""
     if options.resources is not None:
-        return sorted((r.metadata.name, r.aqua_name) for r in options.resources
-                      if r.kind == kind.kind and _selected(r.aqua_name, options.names))
+        return sorted((r.metadata.name, kind.key(r)) for r in options.resources
+                      if r.kind == kind.kind and _selected(kind, kind.key(r), options.names))
     try:
         objects = client.list(kind)
     except ClientError as exc:
         summary.add(Result(kind=kind.kind, name="*", outcome=Outcome.FAILED, reason="ListFailed",
                            message=f"could not list {kind.kind} objects: {exc}"))
         return []
-    return sorted((o[kind.name_field], o[kind.name_field]) for o in objects
+    return sorted((kind.key_of(o), kind.key_of(o)) for o in objects
                   if o.get(kind.name_field)
                   and marker.owner(o.get("description")) == options.instance
-                  and _selected(o[kind.name_field], options.names))
+                  and _selected(kind, kind.key_of(o), options.names))
 
 
 def destroy_all(client: AquaClient, options: DestroyOptions) -> RunSummary:

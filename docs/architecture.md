@@ -155,14 +155,20 @@ managed and keeps its value". It needed state to tell a removed field from one
 never written; without state it meant the repository described only part of
 each policy, and a control enabled in the console was invisible to `plan`.
 
+On an assurance policy the same goes for its **actions** and **exceptions**: removing
+them from the file removes them.
+
 Left as Aqua has them, because they are not controls or not covered:
 
-- fields outside the controls -- description, `enabled`, `enforce`, scopes --
+- fields outside those -- description, `enabled`, `enforce`, application scopes --
   when the YAML leaves them out (the marker is still added to the description);
 - **Bypass Scope** -- scope, not a control, and on by default on the default
   container policy, exempting Aqua's own components;
-- settings the schema does not cover yet: Secure AI – Protection, Tripwire, the
-  forensics `*_config` objects, additional scope criteria;
+- **Additional Scope Criteria**: Aqua fills in its own when a policy is created
+  without them (`container.name` is `*`), so having none is not a state the file can
+  ask for. To widen a policy again, write that criterion;
+- settings the tool does not offer, each with its reason in
+  [schema-reference.md](schema-reference.md#not-offered);
 - a control this Aqua version does not have: nothing to switch off, and writing
   it would never converge.
 
@@ -173,6 +179,13 @@ whole, settings included; applying the export leaves them as they are.
 Updates always send the **complete** object with only our fields changed. Aqua's
 update is a full replace (verified live): a partial body resets every field it
 leaves out.
+
+**Then it reads the object back.** Aqua answers success for a field it does not
+know and drops it, and which fields exist depends on the version:
+`block_outdated_images` arrived in 2022.4 Update 47, for instance. So after each write
+`apply` compares what it sent with what Aqua now holds. A field not kept is reported
+as `not kept by Aqua`, with both values, and fails the run: the policy is not what the
+file says, and saying so beats a plan that silently never settles.
 
 ### What each run does
 
@@ -261,17 +274,22 @@ it is the one command that deletes without a change in Git.
 
 ## Built-in policies
 
-Aqua ships runtime policies of its own -- 18 on the lab tenant -- flagged
-`is_ootb_policy: true`. Verified on the lab:
+Aqua ships policies of its own: 18 runtime policies, and a Default and others for
+each assurance type. Verified on a live tenant:
 
 - **They cannot be deleted.** Aqua refuses: "Action forbidden: runtime policy is
   a system policy". The tool never tries; an orphaned one is reported and kept.
-- **Their controls can change. Their scope can too -- except on the three
-  defaults** ("Aqua default runtime / host runtime / function runtime
-  policy"), where Aqua refuses: "can't change application scope for default
-  policies".
-- **The flag survives edits. `author` does not**: an API edit rewrites it to the
-  editing identity, so `author` cannot identify built-ins.
+- **Their controls can change. Their scope can too -- except on the three runtime
+  defaults** ("Aqua default runtime / host runtime / function runtime policy"),
+  where Aqua refuses: "can't change application scope for default policies". Aqua's
+  docs say the same of its predefined assurance policies.
+- **No field identifies them everywhere.** `is_ootb_policy` is true on them on SaaS,
+  and false on every one in a 2022.4 export. Assurance policies have no flag, and
+  `author` does not survive an edit: an API edit rewrites it to the editing identity.
+
+So **the registry lists them by name** and also honours the flag and `author:
+system`. A custom policy that takes one of those names is treated as Aqua's: the
+worst that does is that the tool will not delete it.
 
 - **Bypass Scope exists only on the default container and host policies**, as in
   the console (`controls.bypassScope`). The default container policy ships with
@@ -281,12 +299,8 @@ Aqua ships runtime policies of its own -- 18 on the lab tenant -- flagged
 
 So built-ins are **adopt-only**: never created or deleted by the tool, otherwise
 managed like any policy, marker included. `export` includes them -- the default
-policy is usually the first one a customer changes.
-
-No API field identifies the three defaults, so the registry lists them by name,
-and a policy must match **both** the name and `is_ootb_policy` -- a custom policy
-that reuses the name is unaffected. A scope change on one of them is reported as
-not allowed and not sent; the rest of the change still applies.
+policy is usually the first one a customer changes. A scope change on a locked one is
+reported as not allowed and not sent; the rest of the change still applies.
 
 ---
 
@@ -304,6 +318,12 @@ name, which Aqua names often are not ("Aqua default runtime policy"), so
 
 `export` sets both automatically.
 
+Assurance policies are addressed by type and name
+(`/assurance_policy/{type}/{name}`), since each type has its own "Default". So their
+key is `image/Default`, what `plan` shows in brackets and `--name` also matches, and
+`export` writes `metadata.name: image-default`. Changing `spec.assuranceType` in Git
+describes a different object: the new one is created, and the old one deleted.
+
 ---
 
 ## Safety defaults
@@ -316,6 +336,10 @@ name, which Aqua names often are not ("Aqua default runtime policy"), so
   internal CA; `AQUA_TLS_INSECURE=true` is a visible, deliberate escape hatch.
 - **No credential reaches output.** Errors, `repr`s and verbose output are
   redacted; the tool refuses to manage credential-bearing fields.
+- **A write is checked.** Each object is read back, and a field Aqua did not keep
+  fails the run.
+- **A control a type does not offer is refused** at `validate`: Aqua would store a
+  CIS benchmark on an image policy, where it does nothing.
 
 ---
 
@@ -332,7 +356,7 @@ name, which Aqua names often are not ("Aqua default runtime policy"), so
   destroy    0 done       1 error, or not confirmed
 ```
 
-`apply` exits 0 on success by default because Argo CD fails a sync on any
+A field Aqua did not keep counts as an error. `apply` exits 0 on success by default because Argo CD fails a sync on any
 non-zero hook exit: a routine apply that leaves, say, a held-back orphan must
 not block every future sync. `--detailed-exitcode` is for pipelines that want
 to gate on it, following `terraform plan -detailed-exitcode`.

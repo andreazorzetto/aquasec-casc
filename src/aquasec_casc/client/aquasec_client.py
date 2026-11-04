@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import requests
+from aquasec import assurance_policies as ap
 from aquasec import runtime_policies as rp
 from aquasec.auth import api_auth, get_console_urls_from_token, user_pass_onprem_auth, user_pass_saas_auth
 from aquasec.common import set_request_defaults, set_token_provider
@@ -115,10 +116,69 @@ def _runtime_policy_ops() -> _Ops:
     )
 
 
+def _kubernetes_read_view(policy: dict | None) -> dict | None:
+    """A Kubernetes policy's checks, as the one list the schema has.
+
+    Aqua keeps three: ``kubernetes_controls`` with an ``enabled`` flag on every
+    check (always right), and names and AVD ids of the enabled ones (empty on a
+    2022.4 export). So the names are read from the flags.
+    """
+    if not policy or policy.get("assurance_type") != "kubernetes":
+        return policy
+    enabled = [c["name"] for c in policy.get("kubernetes_controls") or [] if c.get("enabled")]
+    return {**policy, "kubernetes_controls_names": sorted(enabled)}
+
+
+def _kubernetes_write_view(body: dict) -> dict:
+    """The reverse: all three lists saying the same.
+
+    On update, Aqua goes by the AVD ids if there are any, then the names, then
+    the flags (write-tested), and a create may have no flags to set. So the names
+    and flags are what is wanted, and the ids are left for Aqua to work out.
+    """
+    if body.get("assurance_type") != "kubernetes" or body.get("kubernetes_controls_names") is None:
+        return body
+    names = body["kubernetes_controls_names"]
+    out = {**body, "kubernetes_controls_avd_ids": []}
+    if body.get("kubernetes_controls"):
+        out["kubernetes_controls"] = [{**c, "enabled": c.get("name") in names}
+                                      for c in body["kubernetes_controls"]]
+    return out
+
+
+def _all_assurance_policies(c) -> list[dict]:
+    """Every type's, each carrying its type: names are unique only within one."""
+    found = []
+    for assurance_type in ap.ASSURANCE_TYPES:
+        for policy in ap.get_all_assurance_policies(c.server, c.token, assurance_type,
+                                                    timeout=c.timeout):
+            found.append({"assurance_type": assurance_type, **policy})
+    return found
+
+
+def _assurance_policy_ops() -> _Ops:
+    # Keys are "type/name" (KindDef.key). The API returns nothing on create and
+    # update (HTTP 204), which AquasecClient.create already allows for.
+    return _Ops(
+        list=_all_assurance_policies,
+        get=lambda c, key: _kubernetes_read_view(
+            ap.get_assurance_policy(c.server, c.token, *key.split("/", 1), timeout=c.timeout)),
+        create=lambda c, body: ap.create_assurance_policy(c.server, c.token, body["assurance_type"],
+                                                          _kubernetes_write_view(body),
+                                                          timeout=c.timeout),
+        update=lambda c, key, body: ap.update_assurance_policy(c.server, c.token, *key.split("/", 1),
+                                                               _kubernetes_write_view(body),
+                                                               timeout=c.timeout),
+        delete=lambda c, key: ap.delete_assurance_policy(c.server, c.token, *key.split("/", 1),
+                                                         missing_ok=True, timeout=c.timeout),
+    )
+
+
 #: Kinds this client can serve. A kind in the schema registry but not here is a
 #: build error, reported clearly rather than as an AttributeError mid-run.
 _OPERATIONS: dict[str, Callable[[], _Ops]] = {
     "RuntimePolicy": _runtime_policy_ops,
+    "AssurancePolicy": _assurance_policy_ops,
 }
 
 
@@ -167,10 +227,13 @@ class AquasecClient:
             raise
         except Exception as exc:  # noqa: BLE001
             raise _translate(exc, f"Creating {kind.kind} {name!r}") from None
-        # Aqua returns the complete object on create (verified live). If a
-        # version ever returns nothing, read it back so the caller still gets
-        # the server's view, including its numeric id.
-        return created if isinstance(created, dict) else (self.get(kind, name) or {})
+        # Aqua returns the complete runtime policy on create (verified live) and
+        # nothing for an assurance policy (204). Read it back then, so the
+        # caller gets the server's view, including its numeric id.
+        if isinstance(created, dict):
+            return created
+        qualifier = body.get(kind.qualifier_field) if kind.qualifier_field else None
+        return self.get(kind, f"{qualifier}/{name}" if qualifier else name) or {}
 
     def update(self, kind: KindDef, name: str, body: dict) -> dict:
         try:

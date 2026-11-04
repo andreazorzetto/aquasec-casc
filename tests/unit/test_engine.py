@@ -21,7 +21,8 @@ MARK = marker.marker(ME)
 
 
 class FakeAqua:
-    """An in-memory Aqua, keyed by name like the real one."""
+    """An in-memory Aqua, keyed as the real one is: by name, or by ``type/name``
+    for a kind whose names are unique only within a type."""
 
     def __init__(self, objects: dict[str, dict] | None = None) -> None:
         self.objects = {k: dict(v) for k, v in (objects or {}).items()}
@@ -35,7 +36,8 @@ class FakeAqua:
     def list(self, kind):
         self.calls.append(("list", "*"))
         self._maybe_fail("list")
-        return [dict(o) for o in self.objects.values()]
+        return [dict(o) for k, o in self.objects.items()
+                if ("/" in k) == bool(kind.qualifier_field)]
 
     def get(self, kind, name):
         self.calls.append(("get", name))
@@ -47,7 +49,7 @@ class FakeAqua:
         self.calls.append(("create", body["name"]))
         self._maybe_fail("create")
         stored = {"author": "System", "is_ootb_policy": False, "id": 4471, **body}
-        self.objects[body["name"]] = stored
+        self.objects[kind.key_of(body)] = stored
         return dict(stored)
 
     def update(self, kind, name, body):
@@ -442,12 +444,13 @@ def test_a_shipped_template_not_on_the_predefined_list_can_change_scope():
     assert aqua.objects["HIPAA"]["application_scopes"] == ["AccProd"]
 
 
-def test_a_custom_policy_reusing_a_predefined_name_is_not_predefined():
-    """Both the flag and the name are required."""
-    aqua = FakeAqua({PREDEFINED: server(name=PREDEFINED, application_scopes=["Global"])})
+def test_a_shipped_name_is_enough_where_the_flag_says_nothing():
+    """is_ootb_policy is false on every shipped policy in a 2022.4 export."""
+    aqua = FakeAqua({PREDEFINED: server(name=PREDEFINED, application_scopes=["Global"],
+                                        is_ootb_policy=False)})
     r = reconcile(adopt_builtin(applicationScopes=["DevTest"]), PREDEFINED_KIND, aqua, opts())
-    assert not r.not_allowed
-    assert aqua.objects[PREDEFINED]["application_scopes"] == ["DevTest"]
+    assert r.not_allowed
+    assert aqua.objects[PREDEFINED]["application_scopes"] == ["Global"]
 
 
 def test_a_predefined_policy_still_carries_the_marker():

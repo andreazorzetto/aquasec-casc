@@ -8,11 +8,11 @@ generator all read this table.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Type
+from typing import Any, Type
 
 from .base import Resource
 from .fieldmap import FieldMap
-from . import runtime_policy
+from . import assurance_policy, runtime_policy
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,11 @@ class KindDef:
     name_field: str = "name"
     """The field holding the object's Aqua name in API objects (enforcer groups
     use ``id``)."""
+
+    qualifier_field: str | None = None
+    """The API field that, with the name, identifies an object, for kinds whose
+    names are unique only within a type. Every assurance policy type has its own
+    "Default", so what addresses one is ``image/Default``: see ``key``."""
 
     collection: bool = True
     """A collection kind (policies, scopes, enforcer groups) has many named
@@ -41,10 +46,17 @@ class KindDef:
     refuses to delete them anyway). For runtime policies this is
     ``is_ootb_policy``, which survives edits; ``author`` does not."""
 
+    builtin_value: Any = True
+    """The value of ``builtin_field`` that marks a system object."""
+
+    builtin_names: frozenset[str] = frozenset()
+    """Names of system objects, for kinds with no reliable flag: an object with
+    one of these names is treated as a system object whatever its fields say.
+    The safe direction: the worst case is an object the tool will not delete."""
+
     predefined: frozenset[str] = frozenset()
     """Names of system objects with fields that cannot change -- listed by name
-    because no API field identifies them, and matched only together with
-    ``builtin_field``, so a custom policy reusing the name is not affected."""
+    because no API field identifies them. They must also be system objects."""
 
     only_on: dict[str, frozenset[str]] = field(default_factory=dict)
     """API paths that exist only on particular system objects, by name. Setting
@@ -55,9 +67,9 @@ class KindDef:
     """API paths that cannot change on a predefined object. A desired change is
     reported as not allowed instead of being sent."""
 
-    off_when_unset: str | None = None
-    """Canonical prefix under which a field the YAML leaves out is switched off
-    rather than left as the server has it. For runtime policies this is the
+    off_when_unset: tuple[str, ...] = ()
+    """Canonical prefixes under which a field the YAML leaves out is switched
+    off rather than left as the server has it. For runtime policies this is the
     controls: the file is the whole policy, so a control removed from it -- or
     switched on only in the console -- goes off, as on a new policy."""
 
@@ -69,6 +81,45 @@ class KindDef:
     # client adapter maps each kind onto the library's functions. Keeping one
     # copy means a path changing in Aqua is fixed in exactly one place.
 
+    def key(self, resource: Resource) -> str:
+        """What addresses this resource's object in Aqua."""
+        if not self.qualifier_field:
+            return resource.aqua_name
+        canonical = resource.model_dump(mode="json")
+        qualifier = self.field_map.from_api_path(self.qualifier_field, canonical)
+        return f"{qualifier}/{resource.aqua_name}"
+
+    def key_of(self, obj: dict) -> str:
+        """What addresses a server object."""
+        name = obj.get(self.name_field)
+        return f"{obj.get(self.qualifier_field)}/{name}" if self.qualifier_field else name
+
+    def name_of(self, key: str) -> str:
+        """The bare Aqua name in a key."""
+        return key.split("/", 1)[1] if self.qualifier_field else key
+
+
+#: What Aqua ships. The flag alone will not do: is_ootb_policy is false on every
+#: one of these in a 2022.4 export, so the names are what is certain.
+SHIPPED_RUNTIME_POLICIES = (
+    "Aqua default runtime policy", "Aqua default host runtime policy",
+    "Aqua default function runtime policy",
+    "Block Non-compliant Images", "Block Non-compliant Resources", "Block Unregistered Images",
+    "CIS", "HIPAA", "NIST", "PCI DSS",
+    "FIM for Linux", "FIM for Windows", "Registry monitoring for Windows",
+    "Malware Protection for Linux hosts", "Malware Protection for Windows hosts",
+    "Malware Protection for containers",
+    "Manage Noncompliant Images in Kubernetes", "Manage Noncompliant Kubernetes Resources",
+    "Manage Unregistered Images in Kubernetes",
+)
+
+#: Every type's predefined assurance policies. "You can customize all components
+#: of these policies, with exception of their name and scope"; no flag marks them,
+#: and an API edit may rewrite the author.
+SHIPPED_ASSURANCE_POLICIES = (
+    "Default", "DTA", "Malware-Default-Policy", "Sensitive-Data-Default-Policy",
+    "Non-workload-resources",
+)
 
 REGISTRY: dict[str, KindDef] = {
     runtime_policy.KIND: KindDef(
@@ -91,7 +142,8 @@ REGISTRY: dict[str, KindDef] = {
             "Aqua default function runtime policy",
         }),
         predefined_immutable=("application_scopes",),
-        off_when_unset="spec.controls",
+        builtin_names=frozenset(SHIPPED_RUNTIME_POLICIES),
+        off_when_unset=("spec.controls",),
         # Bypass Scope is scope, not a control, and the default container policy
         # ships with it on, exempting Aqua's own components and kube-system.
         # Switching it off because a file leaves it out would put them in scope.
@@ -102,6 +154,19 @@ REGISTRY: dict[str, KindDef] = {
             "Aqua default runtime policy",
             "Aqua default host runtime policy",
         })},
+    ),
+    assurance_policy.KIND: KindDef(
+        kind=assurance_policy.KIND,
+        model=assurance_policy.AssurancePolicy,
+        field_map=assurance_policy.FIELD_MAP,
+        collection=True,
+        qualifier_field="assurance_type",
+        builtin_field="author",
+        builtin_value="system",
+        builtin_names=frozenset(SHIPPED_ASSURANCE_POLICIES),
+        predefined=frozenset(SHIPPED_ASSURANCE_POLICIES),
+        predefined_immutable=("application_scopes",),
+        off_when_unset=("spec.actions", "spec.exceptions", "spec.controls"),
     ),
 }
 

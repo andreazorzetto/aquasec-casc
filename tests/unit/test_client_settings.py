@@ -260,3 +260,19 @@ def test_nothing_at_all_points_at_setup():
 
 def test_tls_settings_alone_do_not_count_as_credentials():
     assert not env_has_credentials({"AQUA_URL": "https://x", "AQUA_TLS_INSECURE": "true"})
+
+
+def test_the_setup_wizard_verifies_tls_like_every_other_command(monkeypatch):
+    from aquasec import common, config
+
+    from aquasec_casc.client import profiles
+
+    monkeypatch.delenv("AQUA_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("AQUA_TLS_INSECURE", raising=False)
+    monkeypatch.setattr(config, "interactive_setup", lambda name: True)
+    common.reset_request_defaults()
+    try:
+        assert profiles.setup("x") is True
+        assert common.get_request_defaults()["verify"] is True
+    finally:
+        common.reset_request_defaults()

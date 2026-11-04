@@ -1,0 +1,8 @@
+*
+!requirements.lock
+!pyproject.toml
+!README.md
+!LICENSE
+!src
+**/__pycache__
+**/*.egg-info

@@ -8,6 +8,8 @@ either.
 
 from __future__ import annotations
 
+import os
+
 
 def _manager():
     from aquasec.config import ConfigManager
@@ -17,9 +19,15 @@ def _manager():
 def setup(name: str | None = None) -> bool:
     """The library's interactive wizard: prompts, tests the connection, saves.
 
-    With no name, the wizard asks for one (default: ``default``).
+    With no name, the wizard asks for one (default: ``default``). Its calls carry
+    the password and the token, so they verify TLS as every other command does:
+    left to itself the library would not.
     """
+    from aquasec.common import set_request_defaults
     from aquasec.config import interactive_setup
+
+    from .settings import _timeout_from_env, _tls_from_env
+    set_request_defaults(verify=_tls_from_env(os.environ), timeout=_timeout_from_env(os.environ))
     return bool(interactive_setup(name))
 
 

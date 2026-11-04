@@ -105,7 +105,7 @@ later update, which Aqua validates differently. What that found is built in:
 |---|---|
 | File Integrity Monitoring *read* / *attributes* | Not in the console. Aqua accepts them on create, then drops *read* and refuses *attributes* on every update. |
 | Malware protection *include directories* | Not in the console. Aqua sets its own list and restores it on every save. |
-| Read-Only Files, failed Kubernetes checks, drift prevention's *image lockdown*, root executables, File and Package Block's users, processes and exceptions, the *owner user context* privilege | In the API, not in the console, and set by no console-made policy. Not offered. |
+| Read-Only Files, failed Kubernetes checks, drift prevention's *image lockdown*, root executables, File and Package Block's users, processes and exceptions | In the API, not in the console, and set by no console-made policy. Not offered. |
 | Drift prevention's *exec lockdown* | Not a setting: the console's one switch writes both `drift_prevention.enabled` and `exec_lockdown`, and so does the tool. |
 | `driftPrevention.preventPrivileged` | Terraform-only. Aqua accepts and discards it. Use `limitContainerPrivileges.privileged`. |
 | `blockOutdatedImages` on a host policy | Container policies only; `validate` says so. |
@@ -117,10 +117,83 @@ off when a policy is in enforce mode; the API keeps it as written, so the tool
 stores what the file says in either mode. On self-hosted Aqua it needs 2022.4
 Update 44 or later.
 
-Not covered yet: Secure AI - Protection (not in the console's list; it needs
-prompt protection set up first), Tripwire (serverless; it stores a password, and
-the tool never manages credentials) and the forensics `*_config` objects.
 Settings that are not covered or not offered are left as Aqua has them.
+[schema-reference.md](schema-reference.md#not-offered) lists each, with the reason.
+
+### Additional Scope Criteria
+
+Within its application scopes, a policy can be narrowed further, as in the console.
+Removing them from the file leaves them as they are: Aqua fills in its own when a policy
+has none, so to widen a policy again, write that (`value: "*"`).
+
+```yaml
+  additionalScopeCriteria:
+    expression: v1 && !v2
+    variables:
+      - { attribute: image.name, value: "registry.example/*" }
+      - { attribute: image.name, value: "*:dev" }
+```
+
+---
+
+## AssurancePolicy — implemented
+
+One kind for the console's five, told apart by `assuranceType`. The console's three
+headings are in the YAML too, and under each of them **what the file leaves out is
+off**.
+
+```yaml
+apiVersion: config.aquasec.com/v1alpha1
+kind: AssurancePolicy
+metadata:
+  name: accprod-images
+spec:
+  assuranceType: image                # image | host | function | kubernetes | cf_application
+  description: Acceptance/production image assurance
+  applicationScopes:
+    - AccProd
+  actions:                            # what happens when the policy fails
+    createAuditMessage: true
+    failCicd: true
+    markNonCompliant: true
+  exceptions:                         # what evaluating it ignores
+    ignoreNoFix: true
+    ignoreRecentlyPublished:
+      days: 30
+  controls:                           # the tests
+    vulnerabilitySeverity:
+      severity: high
+    malware: true
+    packagesBlocked:
+      packages:
+        - name: netcat
+          version: "1.0"
+          versionRange: Less Than
+```
+
+**Names repeat across types.** Every type has its own "Default", so a policy's
+address in Aqua is `image/Default`, and `export` writes it as `metadata.name:
+image-default`, `aquaName: Default`. `--name` on `export`, `release` and `destroy`
+matches either `Default` or `image/Default`.
+
+**Assurance policies cannot be disabled**: Aqua has no such switch. To keep one
+inert, scope it to names that match nothing, as
+[the playground's](../examples/playground/assurance-policy-image.yaml) does.
+
+**Kubernetes policies** run checks by name:
+
+```yaml
+  assuranceType: kubernetes
+  actions:
+    markNonCompliant: true
+    blockResources: true
+  controls:
+    kubernetesControls: ["Privileged", "Access to host network"]
+```
+
+`validate` refuses a control the console does not offer on that type: Aqua would
+store it and it would do nothing. What each type offers, and what is not offered, is
+in [schema-reference.md](schema-reference.md).
 
 ---
 
@@ -153,7 +226,7 @@ writes, and an apply puts it back if someone removes it in the console.
 
 ## Planned kinds
 
-Not yet implemented. Shapes shown for discussion, and they may move.
+Not yet implemented. The shape is for discussion, and it may move.
 
 ### EnforcerGroup
 
@@ -180,25 +253,6 @@ The token comes back from Aqua on create and is written only to the destination
 named in `tokenSecretRef` — a Kubernetes Secret in-cluster, or a file path when
 standalone. It never reaches stdout or logs, and there are
 tests asserting that.
-
-### AssurancePolicy
-
-```yaml
-apiVersion: config.aquasec.com/v1alpha1
-kind: AssurancePolicy
-metadata:
-  name: prod-image-assurance
-spec:
-  type: image                         # image | host | function | kubernetes
-  description: Production image assurance
-  applicationScopes:
-    - AccProd
-  controls:
-    maxSeverity: high
-    blockOnMalware: true
-    requiredLabels: ["owner"]
-  enforcement: Reconcile
-```
 
 ---
 

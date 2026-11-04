@@ -13,7 +13,7 @@ Exit codes:
   export    0 done, 1 error
   release   0 done (or nothing to release), 1 error
   destroy   0 done (or nothing to destroy), 1 error or not confirmed
-  setup, profile   0 done, 1 error
+  schema, setup, profile   0 done, 1 error
 
 Credentials: --profile, else AQUA_* variables, else the default saved profile.
 """
@@ -162,6 +162,8 @@ def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = Fa
                 out.line(f"    {text}")
         for item in r.not_allowed:
             out.line(f"    not allowed: {item}", "red")
+        for item in r.not_kept:
+            out.line(f"    not kept by Aqua: {item}", "red")
         if r.message:
             out.line(f"    {r.message}", "dim")
     out.line(line or summary.summary_line(), "bold")
@@ -187,7 +189,7 @@ def render_json(summary: RunSummary, exit_code: int, line: str | None = None) ->
             "kind": r.kind, "name": r.name, "aquaName": r.aqua_name,
             "outcome": r.outcome.value, "action": r.action or None,
             "reason": r.reason or None, "message": r.message or None,
-            "changes": plan_json(r), "notAllowed": r.not_allowed,
+            "changes": plan_json(r), "notAllowed": r.not_allowed, "notKept": r.not_kept,
             "pending": r.pending,
         } for r in summary.results],
     }, indent=2, default=str)
@@ -312,9 +314,12 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
     instance = resolve_instance(args.instance, target)
     client = connect(args.profile)
 
-    kind = REGISTRY["RuntimePolicy"]
-    result = exporting.export_kind(client, kind, instance=instance, scope=args.scope,
-                                   names=args.name or None)
+    result = exporting.ExportResult()
+    for kind in REGISTRY.values() if not args.kind else (REGISTRY[args.kind],):
+        part = exporting.export_kind(client, kind, instance=instance, scope=args.scope,
+                                     names=args.name or None)
+        result.exported.extend(part.exported)
+        result.skipped.extend(part.skipped)
 
     existing = [e.filename for e in result.exported if (target / e.filename).exists()]
     if existing and not args.force:
@@ -480,6 +485,13 @@ def cmd_destroy(args, out: Out, connect: Callable) -> int:
     return code
 
 
+def cmd_schema(args, out: Out, connect: Callable) -> int:
+    """JSON Schema, for editors and for checking YAML in CI without this tool."""
+    from ..schema import jsonschema
+    out.line(json.dumps(jsonschema.for_kind(args.kind), indent=2))
+    return 0
+
+
 def cmd_setup(args, out: Out, connect: Callable) -> int:
     from ..client import profiles
     return 0 if profiles.setup(args.name) else 1
@@ -594,6 +606,8 @@ def build_parser() -> argparse.ArgumentParser:
     connection(p)
     p.add_argument("-o", "--out-dir", required=True, metavar="DIR")
     p.add_argument("--scope", required=True, help="application scope to export, e.g. Global")
+    p.add_argument("--kind", choices=sorted(REGISTRY),
+                   help="export only this kind (default: all of them)")
     p.add_argument("--name", action="append", metavar="PATTERN",
                    help="only objects whose name matches (glob; repeatable)")
     p.add_argument("--force", action="store_true", help="overwrite existing files")
@@ -634,6 +648,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true",
                    help="do not ask for confirmation (for scripts)")
     p.set_defaults(handler=cmd_destroy)
+
+    p = sub.add_parser("schema", help="print a kind's JSON Schema, for editors and CI (no network)")
+    p.add_argument("kind", choices=sorted(REGISTRY))
+    p.add_argument("--no-color", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(handler=cmd_schema, output="json")
 
     p = sub.add_parser("setup", help="save credentials as a profile (interactive)",
                        description="The aquasec-lib setup wizard: asks for the connection "

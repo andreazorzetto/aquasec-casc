@@ -16,6 +16,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
+from .sections import AdditionalScopeCriteria, Heading, ScopeVariable, Section, control as _control
 
 KIND = "RuntimePolicy"
 
@@ -38,30 +39,6 @@ def _renamed(new: str) -> str:
 
 _NOT_IN_CONSOLE = ("no longer offered: it is not in Aqua's console. Remove it; "
                    "Aqua keeps the value the tenant has")
-
-
-class Section(StrictModel):
-    """A console control: its "Enable ... control" switch plus its settings.
-
-    ``true`` is shorthand for "on, no settings", ``false`` for off. Writing any
-    setting turns the control on unless ``enabled: false`` is written too. In
-    the API the switch and the settings are separate fields, and settings under
-    a switch that is off do nothing -- silently. Asking for a file block list
-    and getting no file block is exactly that trap.
-
-    Names are the console's labels, in camelCase.
-    """
-
-    enabled: bool = False
-
-    @model_validator(mode="before")
-    @classmethod
-    def _settings_turn_the_section_on(cls, data):
-        if isinstance(data, bool):
-            return {"enabled": data}
-        if isinstance(data, dict) and data and "enabled" not in data:
-            return {**data, "enabled": True}
-        return data
 
 
 class AllowedProcesses(Section):
@@ -98,7 +75,7 @@ class DriftPrevention(AllowedProcesses):
 
 
 class ForkGuard(Section):
-    """Fork Guard (deprecated by Aqua)."""
+    """Fork Guard (hosts; deprecated by Aqua). Aqua refuses it on a container policy."""
 
     processLimit: int | None = None
 
@@ -106,8 +83,6 @@ class ForkGuard(Section):
 class LimitContainerPrivileges(Section):
     """Limit Container Privileges: each setting true prevents that privilege.
     The console's labels are sentences, so these are short forms."""
-
-    renamed: ClassVar[dict[str, str]] = {"ownerUserContext": _NOT_IN_CONSOLE}
 
     privileged: bool | None = None
     """Privileged containers."""
@@ -127,6 +102,9 @@ class LimitContainerPrivileges(Section):
     """Port binding lower than 1024 (Windows only)."""
     addCapabilities: bool | None = None
     """Adding capabilities with --cap-add."""
+    ownerUserContext: bool | None = None
+    """Run in owner's user context (requires restart). In Aqua's docs; not shown
+    by every console version."""
 
 
 class CapabilitiesBlock(Section):
@@ -391,14 +369,6 @@ class SecureAiUnauthorizedModels(Section):
         return _ai_models(value)
 
 
-class ScopeVariable(StrictModel):
-    """One term of a scope expression, e.g. a container label match."""
-
-    attribute: str
-    value: str
-    name: str | None = None
-
-
 class BypassScope(StrictModel):
     """Workloads exempt from this policy.
 
@@ -414,18 +384,17 @@ class BypassScope(StrictModel):
     variables: list[ScopeVariable] = Field(default_factory=list)
 
 
-class Controls(StrictModel):
+class Controls(Heading):
     """The security controls a runtime policy turns on or off, named as in the
     console's control list. A control left out is off.
 
     Not offered, because the console does not show them (and no console-made
     policy on the lab uses them): Read-Only Files, failed Kubernetes checks,
-    drift prevention's image lockdown, root executables,
-    File and Package Block's users, processes and exceptions, and the owner
-    user context privilege. Nor: Tripwire (serverless; carries a password, and
-    the tool never manages credential fields), Secure AI - Protection (needs
-    prompt protection set up first) and the auditing ``*_config`` objects. All
-    of these are left as Aqua has them.
+    drift prevention's image lockdown, root executables, and
+    File and Package Block's users, processes and exceptions. Nor: Honeypot
+    (``tripwire``: serverless; carries an AWS secret key, and the tool never
+    manages credential fields) and the auditing ``*_config`` objects. All of
+    these are left as Aqua has them.
     """
 
     # Names from earlier versions of the schema, for "unknown field" hints.
@@ -512,11 +481,56 @@ class Controls(StrictModel):
     # --- Secure AI -------------------------------------------------------------------
     secureAiDiscovery: SecureAiDiscovery | None = None
     secureAiUnauthorizedModels: SecureAiUnauthorizedModels | None = None
+    secureAiProtection: bool | None = None
+    """Secure AI - Protection. Needs the Prompt Protection toggle on the
+    Integrations > Secure AI screen. Aqua's docs describe excluding services
+    here; the API has only the switch."""
 
     # --- default policies only ---------------------------------------------------
     bypassScope: BypassScope | None = None
     """Only on "Aqua default runtime policy" and "Aqua default host runtime
     policy"; anywhere else it is reported as not allowed and not sent."""
+
+
+_SERVER_ASSIGNED = "server-assigned"
+_NOT_CONSOLE = "not in Aqua's console or docs' control lists, and no console-made policy uses it"
+_DROPPED = "Aqua accepts it on create, then drops or refuses it on update (write-tested)"
+
+#: In the API, and left as Aqua has them. Checked against Aqua's API spec by
+#: tests/unit/test_coverage.py: a new field has to land here or in the map.
+NOT_OFFERED: dict[str, str] = {
+    "id": _SERVER_ASSIGNED, "name": "the name is the file's", "author": _SERVER_ASSIGNED,
+    "created": _SERVER_ASSIGNED, "updated": _SERVER_ASSIGNED, "lastupdate": _SERVER_ASSIGNED,
+    "version": _SERVER_ASSIGNED, "type": _SERVER_ASSIGNED, "permission": _SERVER_ASSIGNED,
+    "domain": _SERVER_ASSIGNED, "digest": _SERVER_ASSIGNED, "is_ootb_policy": _SERVER_ASSIGNED,
+    "is_auto_generated": _SERVER_ASSIGNED, "runtime_mode": _SERVER_ASSIGNED,
+    "enforce_scheduler_added_on": _SERVER_ASSIGNED, "readonly": _SERVER_ASSIGNED,
+    "cve": "vShield bookkeeping", "image_name": "vShield bookkeeping", "repo_name": "vShield bookkeeping",
+    "resource_name": "vShield bookkeeping", "resource_type": "vShield bookkeeping",
+    "vpatch_version": "vShield bookkeeping", "virtual_patch_audit_info": "vShield bookkeeping",
+    "registry": _NOT_CONSOLE, "is_audit_checked": _NOT_CONSOLE, "default_security_profile": _NOT_CONSOLE,
+    "block_container_exec": "vestigial: false even where the control is on; see container_exec",
+    "allowed_executables.allow_root_executables": _NOT_CONSOLE,
+    "allowed_executables.separate_executables": _NOT_CONSOLE,
+    "auditing.audit_brute_force_login": "the top-level audit_brute_force_login is the control",
+    "auditing.audit_network_config": _NOT_CONSOLE, "auditing.audit_process_config": _NOT_CONSOLE,
+    "drift_prevention.image_lockdown": _NOT_CONSOLE,
+    "failed_kubernetes_checks": _NOT_CONSOLE,
+    "file_block.block_files_processes": _NOT_CONSOLE, "file_block.block_files_users": _NOT_CONSOLE,
+    "file_block.exceptional_block_files": _NOT_CONSOLE,
+    "file_block.exceptional_block_files_processes": _NOT_CONSOLE,
+    "file_block.exceptional_block_files_users": _NOT_CONSOLE,
+    "package_block.block_packages_processes": _NOT_CONSOLE, "package_block.block_packages_users": _NOT_CONSOLE,
+    "package_block.exceptional_block_packages_files": _NOT_CONSOLE,
+    "package_block.exceptional_block_packages_processes": _NOT_CONSOLE,
+    "package_block.exceptional_block_packages_users": _NOT_CONSOLE,
+    "file_integrity_monitoring.monitored_files_attributes": _DROPPED,
+    "file_integrity_monitoring.monitored_files_read": _DROPPED,
+    "registry_access_monitoring.monitored_registry_read": _NOT_CONSOLE,
+    "malware_scan_options.include_directories": "Aqua sets its own list and restores it on every save",
+    "readonly_files": "Read-Only Files: deprecated by Aqua; refused when on for a container policy",
+    "tripwire": "Honeypot (functions): holds an AWS secret key, and the tool never manages credentials",
+}
 
 
 class RuntimePolicySpec(ManagedSpec):
@@ -553,6 +567,7 @@ class RuntimePolicySpec(ManagedSpec):
     writes the scopes it reads, so adopting existing policies is unaffected.
     """
     excludeApplicationScopes: list[str] | None = None
+    additionalScopeCriteria: AdditionalScopeCriteria | None = None
 
     controls: Controls = Field(default_factory=Controls)
 
@@ -561,6 +576,10 @@ class RuntimePolicySpec(ManagedSpec):
         """Aqua refuses this switched on (HTTP 400, write-tested); say so at
         validate time. Switched off they are fine: Aqua returns them, off, on
         every policy, so an export carries them."""
+        if self.runtimeType is RuntimeType.FUNCTION and self.enabled is False:
+            raise ValueError(
+                "a function policy cannot be disabled: Aqua stores it enabled whatever is "
+                "sent (write-tested). To keep one inert, narrow additionalScopeCriteria.")
         c = self.controls
         if (self.runtimeType is not RuntimeType.CONTAINER and c.blockOutdatedImages
                 and c.blockOutdatedImages.enabled):
@@ -585,15 +604,6 @@ class RuntimePolicy(Resource):
 # so omitting them is what stops the tool trying to null out Aqua's own metadata.
 # --------------------------------------------------------------------------- #
 
-def _control(name: str, switch: str, settings: dict[str, str],
-             also_set: tuple[str, ...] = ()) -> list[FieldMapping]:
-    """Mappings for one control section: its switch, then each setting, all as
-    full API paths. ``also_set`` are gates written alongside the switch."""
-    base = f"spec.controls.{name}"
-    return [FieldMapping(f"{base}.enabled", switch, also_set=also_set),
-            *(FieldMapping(f"{base}.{c}", a) for c, a in settings.items())]
-
-
 def _section(name: str, block: str, settings: dict[str, str]) -> list[FieldMapping]:
     """A control whose API fields all live in one object, switch included."""
     return _control(name, f"{block}.enabled",
@@ -616,6 +626,8 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.runtimeType", "runtime_type"),
         FieldMapping("spec.applicationScopes", "application_scopes"),
         FieldMapping("spec.excludeApplicationScopes", "exclude_application_scopes"),
+        FieldMapping("spec.additionalScopeCriteria.expression", "scope.expression"),
+        FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables"),
 
         # --- images and workloads -------------------------------------------------
         FieldMapping(
@@ -679,7 +691,7 @@ FIELD_MAP = FieldMap(
             "privileged": "privileged", "hostNetwork": "netmode", "hostPid": "pidmode",
             "hostIpc": "ipcmode", "hostUts": "utsmode", "hostUserNamespace": "usermode",
             "rootUser": "prevent_root_user", "lowPortBinding": "prevent_low_port_binding",
-            "addCapabilities": "block_add_capabilities"}),
+            "addCapabilities": "block_add_capabilities", "ownerUserContext": "use_host_user"}),
         *_section("capabilitiesBlock", "linux_capabilities",
                   {"dropCapabilities": "remove_linux_capabilities"}),
         *_control("forkGuard", "enable_fork_guard", {"processLimit": "fork_guard_process_limit"}),
@@ -760,6 +772,7 @@ FIELD_MAP = FieldMap(
         *_section("secureAiDiscovery", "secure_ai_discovery", {"ignoreList": "ignore_list"}),
         *_section("secureAiUnauthorizedModels", "secure_ai_unauthorized_models",
                   {"models": "unauthorized_list"}),
+        FieldMapping("spec.controls.secureAiProtection", "secure_ai_protection.enabled"),
 
         # --- default policies only (see KindDef.only_on) --------------------------
         FieldMapping("spec.controls.bypassScope.enabled", "bypass_scope.enabled"),

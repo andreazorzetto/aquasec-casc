@@ -74,6 +74,11 @@ class Result:
     """Desired changes withheld because Aqua does not allow them (e.g. the scope
     of a predefined policy). The rest of the change is still applied."""
 
+    not_kept: list[str] = field(default_factory=list)
+    """Fields sent that Aqua does not hold when read back: it accepted the write
+    and dropped or changed them. Usually a field this Aqua version does not have.
+    A run with any of these fails: the policy is not what the file says."""
+
     informational: bool = False
     """Reported, but nothing anyone could do will resolve it -- so it never
     counts as pending (an orphaned predefined policy, which Aqua cannot delete,
@@ -95,7 +100,7 @@ class Result:
 
     @property
     def failed(self) -> bool:
-        return self.outcome is Outcome.FAILED
+        return self.outcome is Outcome.FAILED or bool(self.not_kept)
 
 
 @dataclass
@@ -120,7 +125,7 @@ class RunSummary:
         return [r for r in self.results if r.pending]
 
     def blocked_or_failed(self) -> list[Result]:
-        return [r for r in self.results if r.outcome in (Outcome.BLOCKED, Outcome.FAILED)]
+        return [r for r in self.results if r.outcome is Outcome.BLOCKED or r.failed]
 
     @property
     def changed(self) -> list[Result]:
@@ -161,4 +166,7 @@ class RunSummary:
         not_allowed = sum(1 for r in self.results if r.not_allowed)
         if not_allowed:
             parts.append(f"{not_allowed} with changes not allowed")
+        not_kept = sum(1 for r in self.results if r.not_kept)
+        if not_kept:
+            parts.append(f"{not_kept} with fields Aqua did not keep")
         return ", ".join(parts)

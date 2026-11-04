@@ -74,10 +74,24 @@ def equivalent(a: Any, b: Any) -> bool:
 
     Note this deliberately does NOT treat ``False`` as equivalent to absent. A
     security control that is off is a meaningful, deliberate state.
+
+    In a list of objects, only the fields of ``b``, the wanted item, count: Aqua
+    adds fields of its own to items (a package's ``display``), and stores a
+    field it was not given as "". The tool writes every field it maps, so a
+    field removed from the YAML is still seen.
     """
     if _is_empty(a) and _is_empty(b):
         return True
+    if (isinstance(a, list) and isinstance(b, list) and len(a) == len(b)
+            and any(isinstance(item, dict) for item in b)):
+        return all(_same_item(have, want) for have, want in zip(a, b))
     return a == b
+
+
+def _same_item(have: Any, want: Any) -> bool:
+    if not (isinstance(have, dict) and isinstance(want, dict)):
+        return have == want
+    return all(have.get(k) == v or (v == "" and have.get(k) is None) for k, v in want.items())
 
 
 def flatten(obj: Any, prefix: str = "") -> dict[str, Any]:

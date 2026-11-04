@@ -80,11 +80,14 @@ def release_all(client: AquaClient, options: ReleaseOptions) -> RunSummary:
                                message=f"could not list {kind.kind} objects: {exc}"))
             continue
 
-        for obj in sorted(objects, key=lambda o: str(o.get(kind.name_field, ""))):
-            name = obj.get(kind.name_field)
-            if not name or marker.owner(obj.get("description")) != options.instance:
+        for obj in sorted(objects, key=lambda o: str(kind.key_of(o) or "")):
+            if not obj.get(kind.name_field):
                 continue
-            if options.names and not any(fnmatch.fnmatchcase(name, p) for p in options.names):
+            name = kind.key_of(obj)
+            if marker.owner(obj.get("description")) != options.instance:
+                continue
+            if options.names and not any(fnmatch.fnmatchcase(n, p) for n in (name, kind.name_of(name))
+                                         for p in options.names):
                 continue
 
             common = dict(kind=kind.kind, name=name, aqua_name=name)

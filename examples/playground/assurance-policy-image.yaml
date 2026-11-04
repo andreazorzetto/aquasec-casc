@@ -1,0 +1,42 @@
+# Playground policy: an image assurance policy with what the console's three
+# headings hold. Actions, Exceptions, Controls: what the file leaves out is off.
+#
+# Safe on any tenant. Assurance policies have no "disabled": this one is scoped to
+# image names that match nothing, and it takes no action on what it finds.
+apiVersion: config.aquasec.com/v1alpha1
+kind: AssurancePolicy
+metadata:
+  name: casc-playground-image
+spec:
+  assuranceType: image                # image | host | function | kubernetes | cf_application
+  description: aquasec-casc playground -- matches no image; safe to delete
+  applicationScopes:
+    - Global
+  additionalScopeCriteria:            # narrows the scope: to nothing, here
+    expression: v1
+    variables:
+      - attribute: image.name
+        value: casc-playground-matches-nothing-*
+  exceptions:
+    ignoreNoFix: true
+    ignoreRecentlyPublished:
+      days: 30
+    ignoreSpecificVulnerabilities:
+      cves: ["CVE-2021-44228"]
+  controls:
+    vulnerabilitySeverity:
+      severity: high
+    malware: true
+    sensitiveData:
+      excludedPaths: ["/usr/share/doc/"]
+    cvesBlocked:
+      cves: ["CVE-2024-3094"]
+    packagesBlocked:
+      packages:
+        - name: netcat
+          version: "1.0"
+          versionRange: Less Than
+    labelsRequired:
+      labels:
+        - key: owner
+    superuser: true

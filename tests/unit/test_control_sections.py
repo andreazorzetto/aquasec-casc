@@ -124,7 +124,6 @@ def test_settings_aqua_will_not_keep_are_not_offered(controls):
     {"readonlyFiles": {"files": ["/etc/passwd"]}},
     {"failedKubernetesChecks": {"checks": ["x"]}},
     {"driftPrevention": {"imageLockdown": True}},
-    {"limitContainerPrivileges": {"ownerUserContext": True}},
     {"executablesAllowed": {"rootExecutables": ["sh"]}},
     {"fileBlock": {"users": ["root"]}},
     {"packageBlock": {"processes": ["sh"]}},
@@ -204,3 +203,13 @@ def test_secure_ai_is_kept_in_enforce_mode_and_on_hosts():
     resource.spec.enforce = True
     body = FIELD_MAP.to_api(resource.model_dump(exclude_unset=True, mode="json"))
     assert body["secure_ai_discovery"]["enabled"] is True
+
+
+@pytest.mark.parametrize("kind,type_field,type_", [("RuntimePolicy", "runtimeType", "container"),
+                                                   ("AssurancePolicy", "assuranceType", "image")])
+def test_a_heading_with_everything_commented_out_is_empty(kind, type_field, type_):
+    from aquasec_casc.schema import load_document, registry
+    doc = {"apiVersion": "config.aquasec.com/v1alpha1", "kind": kind, "metadata": {"name": "x"},
+           "spec": {type_field: type_, "applicationScopes": ["Global"], "controls": None}}
+    canonical = load_document(doc, "test")[0].model_dump(exclude_unset=True, mode="json")
+    assert not registry.get(kind).field_map.to_api(canonical).get("block_disallowed_images")

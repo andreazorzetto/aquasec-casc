@@ -235,3 +235,65 @@ def test_the_all_controls_example_is_stored_as_written_and_survives_a_resave(cli
         assert code == 0, out
     finally:
         rp.delete_runtime_policy(client.server, client.token, name, missing_ok=True)
+
+
+def test_assurance_export_adopt_noop_drift_revert_delete(client, tmp_path):
+    """The whole path on an assurance policy. Inert: scoped to match nothing."""
+    import json
+
+    from aquasec import assurance_policies as ap
+
+    from aquasec_casc.reconcile import marker
+
+    tag = secrets.token_hex(3)
+    instance, name = f"live-{tag}", f"aquasec-casc-live-{tag}-assurance"
+    repo = tmp_path / "repo"
+
+    def server():
+        return ap.get_assurance_policy(client.server, client.token, "image", name)
+
+    ap.create_assurance_policy(client.server, client.token, "image", {
+        "name": name, "assurance_type": "image", "application_scopes": ["Global"],
+        "description": "Made in the console (aquasec-casc live test, safe to delete)",
+        "cvss_severity_enabled": True, "cvss_severity": "high",
+        "scope": {"expression": "v1", "variables": [{"attribute": "image.name",
+                                                     "value": f"casc-no-such-{tag}"}]}})
+    try:
+        original = server()
+        code, out = cli(client, "export", "--scope", "Global", "--name", name, "--kind",
+                        "AssurancePolicy", "-o", str(repo), "--instance", instance)
+        assert code == 0 and "1 exported" in out, out
+
+        code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo), "--output", "json")
+        assert code == 2, out
+        assert [c["path"] for c in json.loads(out)["results"][0]["changes"]] == ["description"]
+
+        code, out = cli(client, "apply", "-f", str(repo))
+        assert code == 0 and "1 adopted" in out, out
+        after = server()
+        assert marker.owner(after["description"]) == instance
+        for key in ("cvss_severity", "cvss_severity_enabled", "scope", "application_scopes"):
+            assert after[key] == original[key], key
+
+        code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo))
+        assert code == 0 and "1 unchanged" in out, out
+
+        tampered = {**server(), "fail_cicd": True}             # on in the console, not in the file
+        ap.update_assurance_policy(client.server, client.token, "image", name, tampered)
+        code, out = cli(client, "plan", "--detailed-exitcode", "-f", str(repo), "--output", "json")
+        assert code == 2, out
+        assert [c["path"] for c in json.loads(out)["results"][0]["changes"]] == ["fail_cicd"]
+        code, out = cli(client, "apply", "-f", str(repo))
+        assert code == 0 and "1 updated" in out, out
+        assert server()["fail_cicd"] is False
+
+        code, out = cli(client, "release", "-f", str(repo), "--name", name, "--dry-run")
+        assert code == 0 and "1 to release" in out, out
+
+        for f in repo.glob("assurance-policy-*.yaml"):
+            f.unlink()
+        code, out = cli(client, "apply", "-f", str(repo), "--allow-empty")
+        assert code == 0 and "1 deleted" in out, out
+        assert server() is None
+    finally:
+        ap.delete_assurance_policy(client.server, client.token, "image", name, missing_ok=True)

@@ -20,11 +20,11 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from ..schema.base import Enforcement, Resource
-from ..schema.fieldmap import set_path
+from ..schema.fieldmap import MISSING, get_path, set_path
 from ..schema.registry import REGISTRY, KindDef
 from . import marker
 from .client import AquaClient, ClientError
-from .diff import Plan, flatten, three_way_diff
+from .diff import Plan, equivalent, flatten, three_way_diff
 from .result import Outcome, Result, RunSummary
 from .state import NoopStateBackend, StateBackend, StateError, assert_not_ownable
 
@@ -56,7 +56,11 @@ class Options:
 
 def is_shipped(kind: KindDef, obj: dict | None) -> bool:
     """Aqua-shipped: never created or deleted by the tool."""
-    return bool(kind.builtin_field and obj and obj.get(kind.builtin_field) is True)
+    if not obj:
+        return False
+    if kind.builtin_field and obj.get(kind.builtin_field) == kind.builtin_value:
+        return True
+    return obj.get(kind.name_field) in kind.builtin_names
 
 
 def is_predefined(kind: KindDef, obj: dict | None, name: str) -> bool:
@@ -120,9 +124,8 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     """
     canonical = resource.model_dump(exclude_unset=True, mode="json")
     desired = kind.field_map.to_api(canonical)
-    if kind.off_when_unset and actual:
-        off = kind.field_map.switched_off(canonical, actual, kind.off_when_unset,
-                                          keep=kind.kept_when_unset)
+    for under in kind.off_when_unset if actual else ():
+        off = kind.field_map.switched_off(canonical, actual, under, keep=kind.kept_when_unset)
         for path, value in flatten(off).items():
             set_path(desired, path, value)
 
@@ -135,6 +138,26 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     return desired
 
 
+def _not_kept(kind: KindDef, key: str, plan: Plan, client: AquaClient) -> list[str]:
+    """What was sent and is not what Aqua holds now, read back.
+
+    Aqua accepts fields it does not know and drops them, and some versions drop
+    fields others keep. Without this the write reports success, and the only sign
+    is a plan that never settles.
+    """
+    try:
+        stored = client.get(kind, key)
+    except ClientError as exc:
+        return [f"could not read the object back to check it: {exc}"]
+    missing = []
+    for change in plan.changes:
+        have = get_path(stored or {}, change.path)
+        if have is MISSING or not equivalent(have, change.after):
+            shown = "nothing" if have is MISSING else repr(have)
+            missing.append(f"{change.path}: sent {change.after!r}, Aqua holds {shown}")
+    return missing
+
+
 def reconcile(
     resource: Resource,
     kind: KindDef,
@@ -145,11 +168,12 @@ def reconcile(
     """Bring one resource into line, or describe what it would take."""
     state = state or NoopStateBackend()
     name = resource.aqua_name
-    common = dict(kind=resource.kind, name=resource.metadata.name, aqua_name=name)
+    key = kind.key(resource)
+    common = dict(kind=resource.kind, name=resource.metadata.name, aqua_name=key)
     report_only = getattr(resource.spec, "enforcement", None) is Enforcement.REPORT_ONLY
 
     try:
-        actual = client.get(kind, name)
+        actual = client.get(kind, key)
     except ClientError as exc:
         return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="LookupFailed")
 
@@ -179,7 +203,8 @@ def reconcile(
             return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="CreateFailed")
         state.record(resource.kind, resource.metadata.name, aqua_name=name,
                      aqua_id=_aqua_id(created))
-        return Result(**common, outcome=Outcome.CREATED, plan=plan, not_allowed=not_allowed)
+        return Result(**common, outcome=Outcome.CREATED, plan=plan, not_allowed=not_allowed,
+                      not_kept=_not_kept(kind, key, plan, client))
 
     # ---- exists: whose is it? ----------------------------------------------
     adopting = False
@@ -211,14 +236,15 @@ def reconcile(
                       reason="AdoptRequired" if adopting else "UpdateRequired")
 
     try:
-        client.update(kind, name, plan.apply_to(actual))
+        client.update(kind, key, plan.apply_to(actual))
     except ClientError as exc:
         return Result(**common, outcome=Outcome.FAILED, plan=plan, message=str(exc),
                       reason="UpdateFailed")
 
     state.record(resource.kind, resource.metadata.name, aqua_name=name, aqua_id=_aqua_id(actual))
     return Result(**common, outcome=Outcome.ADOPTED if adopting else Outcome.UPDATED,
-                  plan=plan, not_allowed=not_allowed)
+                  plan=plan, not_allowed=not_allowed,
+                  not_kept=_not_kept(kind, key, plan, client))
 
 
 def _aqua_id(obj: dict | None) -> int | None:
@@ -243,7 +269,7 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options) ->
         if not kind.collection:
             continue
 
-        wanted = {r.aqua_name for r in resources if r.kind == kind.kind}
+        wanted = {kind.key(r) for r in resources if r.kind == kind.kind}
         try:
             objects = client.list(kind)
         except ClientError as exc:
@@ -253,8 +279,10 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options) ->
             continue
 
         for obj in objects:
-            name = obj.get(kind.name_field)
-            if not name or name in wanted:
+            if not obj.get(kind.name_field):
+                continue
+            name = kind.key_of(obj)
+            if name in wanted:
                 continue
             if marker.owner(obj.get("description")) != options.instance:
                 continue
