@@ -373,8 +373,8 @@ def test_destroy_without_a_terminal_needs_yes(repo, monkeypatch):
 def test_destroy_is_cancelled_unless_the_instance_name_is_typed(repo, terminal):
     aqua = FakeAqua({"devtest-baseline": marked("devtest-baseline")})
     terminal.append("yes")
-    code, out, _ = run(["destroy", "-f", str(repo)], aqua)
-    assert code == 1 and "cancelled" in out and aqua.writes() == []
+    code, _, err = run(["destroy", "-f", str(repo)], aqua)
+    assert code == 1 and "cancelled" in err and aqua.writes() == []
 
     terminal.append("platform")
     code, out, _ = run(["destroy", "-f", str(repo)], aqua)

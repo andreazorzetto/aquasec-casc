@@ -1,6 +1,6 @@
 """Field map verified against a real recorded Aqua API response.
 
-The fixture is the stock "Aqua default runtime policy" captured from the eu-1
+The fixture is the stock "Aqua default runtime policy" captured from a SaaS
 lab tenant on 11 September 2026. It is Aqua's own out-of-the-box policy
 (``author: System``) and contains no customer data.
 

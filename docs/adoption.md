@@ -22,14 +22,20 @@ Check that it holds, then adopt:
 
 ```
 $ aquasec-casc plan -f aqua/policies
+~ AssurancePolicy/image-default ('image/Default'): will be adopted
+    + ownership marker (managed-by: aquasec-casc/platform)
 ~ RuntimePolicy/devtest-baseline: will be adopted
     + ownership marker (managed-by: aquasec-casc/platform)
 
 $ aquasec-casc apply -f aqua/policies
+~ AssurancePolicy/image-default ('image/Default'): adopted
+    + ownership marker (managed-by: aquasec-casc/platform)
 ~ RuntimePolicy/devtest-baseline: adopted
+    + ownership marker (managed-by: aquasec-casc/platform)
+0 unchanged, 0 created, 0 updated, 2 adopted, 0 deleted
 
 $ aquasec-casc plan -f aqua/policies --detailed-exitcode
-1 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
+2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
 ```
 
 **If `plan` shows anything but the marker, stop and read it.** It should not; please
@@ -48,6 +54,11 @@ report it. `apply` would make that change.
   a policy's `author` to your identity, which cannot be undone, and on a shared tenant
   that may matter: delete their files if you are not going to change them.
 - **Objects another instance manages** are skipped, with a message.
+- **A policy that does not fit the schema** gets no file, and `export` exits 1. The
+  message says why, and it stays with the console until that is fixed.
+- **Export into a folder you will apply covers the whole instance.** Anything this
+  instance already manages that `--scope` or `--name` leaves out has no file there, and
+  an apply deletes it. `export` warns, and names them.
 - **Exported files say what is on.** Off controls are left out, since left out means
   off. Their settings stay in Aqua, as the console wrote them.
 

@@ -61,14 +61,14 @@ a typo'd control would otherwise be accepted and silently do nothing.
 
 ```
 $ aquasec-casc plan -f /tmp/playground
-+ AssurancePolicy/casc-playground-image: will be created
++ AssurancePolicy/casc-playground-image ('image/casc-playground-image'): will be created
 + RuntimePolicy/casc-playground-all-controls: will be created
 + RuntimePolicy/casc-playground-baseline: will be created
 + RuntimePolicy/casc-playground-strict: will be created
 0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 4 planned
 
 $ aquasec-casc apply -f /tmp/playground
-+ AssurancePolicy/casc-playground-image: created
++ AssurancePolicy/casc-playground-image ('image/casc-playground-image'): created
 + RuntimePolicy/casc-playground-all-controls: created
 + RuntimePolicy/casc-playground-baseline: created
 + RuntimePolicy/casc-playground-strict: created
@@ -134,7 +134,7 @@ Assurance policies behave the same. In `assurance-policy-image.yaml`, remove the
 
 ```
 $ aquasec-casc plan -f /tmp/playground
-~ AssurancePolicy/casc-playground-image: will be updated
+~ AssurancePolicy/casc-playground-image ('image/casc-playground-image'): will be updated
     ! controls.malware.enabled: true -> false   (API: disallow_malware)
 ```
 
@@ -207,7 +207,8 @@ $ aquasec-casc release -f /tmp/playground --dry-run
 ~ RuntimePolicy/casc-playground-all-controls: will be released
 ~ RuntimePolicy/casc-playground-baseline: will be released
 ~ RuntimePolicy/casc-playground-handmade: will be released
-3 to release
+~ AssurancePolicy/image/casc-playground-image: will be released
+4 to release
 
 $ aquasec-casc release -f /tmp/playground
 ~ RuntimePolicy/casc-playground-all-controls: released
@@ -216,12 +217,14 @@ $ aquasec-casc release -f /tmp/playground
     marker removed; the object is no longer managed
 ~ RuntimePolicy/casc-playground-handmade: released
     marker removed; the object is no longer managed
-3 released
+~ AssurancePolicy/image/casc-playground-image: released
+    marker removed; the object is no longer managed
+4 released
 Next: remove these objects' files from Git, or stop the pipeline. While they remain, the next apply adopts the objects again.
 ```
 
 The policies stay exactly as they are, minus the marker. Running `plan` now
-shows all three as `will be adopted` -- which is the warning above in action.
+shows all four as `will be adopted` -- which is the warning above in action.
 `--to <instance>` hands them to another instance instead.
 
 ## 9. Clean up
@@ -230,19 +233,21 @@ shows all three as `will be adopted` -- which is the warning above in action.
 manages -- after showing the plan and asking you to type the instance name:
 
 ```
-$ aquasec-casc apply -f /tmp/playground            # re-adopts all three
+$ aquasec-casc apply -f /tmp/playground            # re-adopts all four
 $ aquasec-casc destroy -f /tmp/playground
 - RuntimePolicy/casc-playground-all-controls: will be deleted
 - RuntimePolicy/casc-playground-baseline: will be deleted
 - RuntimePolicy/casc-playground-handmade: will be deleted
-3 to destroy
+- AssurancePolicy/casc-playground-image ('image/casc-playground-image'): will be deleted
+4 to destroy
 This deletes the objects described in /tmp/playground owned by instance 'playground'. It cannot be undone.
 Type the instance name (playground) to confirm: playground
 
 - RuntimePolicy/casc-playground-all-controls: deleted
 - RuntimePolicy/casc-playground-baseline: deleted
 - RuntimePolicy/casc-playground-handmade: deleted
-3 destroyed
+- AssurancePolicy/casc-playground-image ('image/casc-playground-image'): deleted
+4 destroyed
 Next: remove these files from Git, or stop the pipeline. While they remain, the next apply recreates the objects.
 ```
 
@@ -261,7 +266,7 @@ against a wrong path or an empty mount.
 
 | | |
 |---|---|
-| `--output json` | machine-readable results, every command |
+| `--output json` | machine-readable results, everything that talks to Aqua |
 | `-v` | `plan`/`apply` also list unchanged objects |
 | `--instance NAME` | override `aquasec-casc.yaml` |
 | `--detailed-exitcode` | `plan`/`apply` exit 2 when changes are (left) pending, for scripts |

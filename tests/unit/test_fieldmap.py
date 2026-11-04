@@ -302,12 +302,12 @@ def test_round_trip_is_stable():
 
 
 def test_read_falls_back_to_an_older_api_name():
-    """An on-prem tenant predating a rename still maps onto current names."""
-    old_tenant = {"block_unregistered_images": True, "limit_new_privileges": True}
-    canonical = FIELD_MAP.from_api(old_tenant)
-
-    assert canonical["spec"]["controls"]["blockUnregisteredImages"] is True
-    assert canonical["spec"]["controls"]["limitNewPrivileges"] is True
+    """The mechanism, for a rename to come."""
+    table = FieldMap(kind="X", mappings=[FieldMapping("spec.a", "new_a", api_aliases=("old_a",))])
+    assert table.from_api({"old_a": True})["spec"]["a"] is True
+    assert table.resolve_api_path({"old_a": True}, "spec.a") == "old_a"
+    assert table.resolve_api_path({"new_a": True}, "spec.a") == "new_a"
+    assert table.resolve_api_path({}, "spec.a") is None
 
 
 def test_write_always_uses_the_current_api_name():
@@ -334,20 +334,8 @@ def test_current_name_wins_when_a_tenant_returns_both():
     assert canonical["spec"]["controls"]["blockUnregisteredImages"] is True
 
 
-def test_resolve_api_path_settles_ambiguity_against_a_real_object():
-    """The mechanism that will resolve the block_non_compliant_images question."""
-    modern = {"block_disallowed_images": True}
-    legacy = {"block_non_compliant_images": True}
-    absent: dict = {}
-
-    path = "spec.controls.blockNonCompliantImages"
-    assert FIELD_MAP.resolve_api_path(modern, path) == "block_disallowed_images"
-    assert FIELD_MAP.resolve_api_path(legacy, path) == "block_non_compliant_images"
-    assert FIELD_MAP.resolve_api_path(absent, path) is None
-
-
 def test_the_demo_field_maps_to_the_name_the_tenant_actually_uses():
-    """Settled against the eu-1 lab tenant on 11 Sep 2026.
+    """Settled against a SaaS lab tenant.
 
     All 47 runtime policies carry block_disallowed_images; none carries
     block_non_compliant_images. Writing the wrong one would be ignored silently.
@@ -367,13 +355,6 @@ def test_the_demo_field_maps_to_the_name_the_tenant_actually_uses():
     assert FIELD_MAP.to_api(canonical_of(resource)) == {
         "block_disallowed_images": False, "application_scopes": ["DevTest"],
     }
-
-
-def test_the_retired_name_is_still_accepted_on_read():
-    """Kept for on-prem builds that may predate the rename."""
-    legacy = {"block_non_compliant_images": True}
-    canonical = FIELD_MAP.from_api(legacy)
-    assert canonical["spec"]["controls"]["blockNonCompliantImages"] is True
 
 
 # --------------------------------------------------------------------------- #

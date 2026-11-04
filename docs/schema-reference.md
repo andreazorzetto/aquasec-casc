@@ -8,6 +8,18 @@ Names are the console's labels in camelCase. Under `actions`, `exceptions` and
 written `true`, and writing any of its settings switches it on. `aquasec-casc schema
 KIND` prints the same as JSON Schema, for editors and CI.
 
+## Tested against
+
+`tests/integration/test_every_field.py` puts every field here through create, a re-save,
+export, removal and update, on a live tenant, for each type that offers it.
+
+| Aqua | |
+|---|---|
+| SaaS | All of it: 164 cases, and all 61 policies on the tenant export and plan only the marker. |
+| Self-hosted 2022.4 | The API spec and a console export were compared. Not yet run live. |
+
+Sign-in with a user name and password, as self-hosted Aqua uses, is covered by unit tests only.
+
 ## RuntimePolicy
 
 All under `spec`.
@@ -163,7 +175,7 @@ All under `spec`.
 | `controls.secureAiUnauthorizedModels.models` | list of text | `secure_ai_unauthorized_models.unauthorized_list` | Models and services flagged as unauthorized. |
 | `controls.secureAiProtection` | true/false | `secure_ai_protection.enabled` | Secure AI - Protection. Needs the Prompt Protection toggle on the Integrations > Secure AI screen. Aqua's docs describe excluding services here; the API has only the switch. |
 | `controls.bypassScope` | object | | Only on "Aqua default runtime policy" and "Aqua default host runtime policy"; anywhere else it is reported as not allowed and not sent. |
-| `controls.bypassScope.enabled` | true/false | `bypass_scope.enabled` |  |
+| `controls.bypassScope.enabled` | true/false | `bypass_scope.enabled` | The control's switch. |
 | `controls.bypassScope.expression` | text | `bypass_scope.scope.expression` | How the variables combine, e.g. ``v1 \|\| v2 \|\| v3``. |
 | `controls.bypassScope.variables` | list of {attribute, value, name} | `bypass_scope.scope.variables` |  |
 | `aquaName` | text | `name` | The name in Aqua, when it is not a valid `metadata.name`. Defaults to `metadata.name`. |

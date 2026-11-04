@@ -126,9 +126,9 @@ def _kubernetes_read_view(policy: dict | None) -> dict | None:
     check (always right), and names and AVD ids of the enabled ones (empty on a
     2022.4 export). So the names are read from the flags.
     """
-    if not policy or policy.get("assurance_type") != "kubernetes":
+    if not policy or policy.get("assurance_type") != "kubernetes" or not policy.get("kubernetes_controls"):
         return policy
-    enabled = [c["name"] for c in policy.get("kubernetes_controls") or [] if c.get("enabled")]
+    enabled = [c["name"] for c in policy["kubernetes_controls"] if c.get("enabled")]
     return {**policy, "kubernetes_controls_names": sorted(enabled)}
 
 

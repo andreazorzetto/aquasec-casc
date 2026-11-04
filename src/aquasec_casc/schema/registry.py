@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Type
+from typing import Any, Callable, Iterable, Type
 
 from .base import Resource
 from .fieldmap import FieldMap
@@ -77,6 +77,10 @@ class KindDef:
     kept_when_unset: tuple[str, ...] = ()
     """Canonical prefixes under ``off_when_unset`` exempt from it: left as the
     server has them when the YAML leaves them out."""
+
+    drop_on_export: Callable[[dict], list[str]] | None = None
+    """Takes out of an exported spec what the schema refuses and that does nothing
+    in Aqua anyway, so that the policy can still be adopted. Returns what it took."""
 
     # API paths deliberately do not live here: aquasec-lib owns them, and the
     # client adapter maps each kind onto the library's functions. Keeping one
@@ -176,6 +180,7 @@ REGISTRY: dict[str, KindDef] = {
         predefined=frozenset(SHIPPED_ASSURANCE_POLICIES),
         predefined_immutable=("application_scopes",),
         off_when_unset=("spec.actions", "spec.exceptions", "spec.controls"),
+        drop_on_export=assurance_policy.not_offered_on_this_type,
     ),
 }
 

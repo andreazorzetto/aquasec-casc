@@ -56,7 +56,7 @@ def for_kind(kind: str, *, shorthand: bool = True) -> dict[str, Any]:
     schema = kind_def.model.model_json_schema(mode="validation")
     if shorthand:
         sections = {name for name, sub in schema.get("$defs", {}).items()
-                    if "enabled" in (sub.get("properties") or {}) and name != "BypassScope"}
+                    if "enabled" in (sub.get("properties") or {})}
         schema = _allow_the_shorthand(schema, sections)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = f"https://{GROUP}/{VERSION}/{kind}.schema.json"

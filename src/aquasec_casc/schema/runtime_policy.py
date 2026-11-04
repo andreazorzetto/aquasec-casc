@@ -375,7 +375,7 @@ class SecureAiUnauthorizedModels(Section):
         return _ai_models(value)
 
 
-class BypassScope(StrictModel):
+class BypassScope(Section):
     """Workloads exempt from this policy.
 
     Only the default container and host runtime policies have it -- the same as
@@ -383,7 +383,6 @@ class BypassScope(StrictModel):
     Aqua's own components, ``kube-system`` and pod sandboxes.
     """
 
-    enabled: bool = False
     expression: str = ""
     """How the variables combine, e.g. ``v1 || v2 || v3``."""
 
@@ -639,22 +638,17 @@ FIELD_MAP = FieldMap(
         FieldMapping(
             "spec.controls.blockNonCompliantImages",
             "block_disallowed_images",
-            api_aliases=("block_non_compliant_images",),
             note=(
-                "RESOLVED against the eu-1 lab tenant (11 Sep 2026): all 47 "
+                "RESOLVED against a SaaS lab tenant: all 47 "
                 "runtime policies carry block_disallowed_images, and none "
-                "carries block_non_compliant_images. The Terraform provider "
-                "treats the latter as a retired alias; neither the specs nor "
-                "the docs name it. Kept for read only, in case an older "
-                "on-prem build still returns it."
+                "carries block_non_compliant_images, a name neither the specs "
+                "nor the docs use."
             ),
         ),
         FieldMapping("spec.controls.blockNonCompliantResources", "block_non_compliant_workloads"),
         FieldMapping(
             "spec.controls.blockUnregisteredImages",
             "only_registered_images",
-            api_aliases=("block_unregistered_images",),
-            note="The API renamed block_unregistered_images; older tenants use the alias.",
         ),
         FieldMapping("spec.controls.blockNonKubernetesContainers", "block_non_k8s_containers"),
         *_section("blockOutdatedImages", "block_outdated_images",
@@ -691,8 +685,7 @@ FIELD_MAP = FieldMap(
         ),
         *_section("executablesAllowed", "allowed_executables", {"executables": "allow_executables"}),
         *_section("executablesBlocked", "executable_blacklist", {"executables": "executables"}),
-        FieldMapping("spec.controls.limitNewPrivileges", "no_new_privileges",
-                     api_aliases=("limit_new_privileges",)),
+        FieldMapping("spec.controls.limitNewPrivileges", "no_new_privileges"),
         *_section("limitContainerPrivileges", "limit_container_privileges", {
             "privileged": "privileged", "hostNetwork": "netmode", "hostPid": "pidmode",
             "hostIpc": "ipcmode", "hostUts": "utsmode", "hostUserNamespace": "usermode",
@@ -712,10 +705,8 @@ FIELD_MAP = FieldMap(
                 "the names reading differently."
             ),
         ),
-        FieldMapping("spec.controls.dnsIpReputation", "enable_ip_reputation",
-                     api_aliases=("enable_ip_reputation_security",)),
-        FieldMapping("spec.controls.portScanningDetection", "enable_port_scan_protection",
-                     api_aliases=("enable_port_scan_detection",)),
+        FieldMapping("spec.controls.dnsIpReputation", "enable_ip_reputation"),
+        FieldMapping("spec.controls.portScanningDetection", "enable_port_scan_protection"),
         *_section("portBlock", "port_block", {
             "blockedInboundPorts": "block_inbound_ports",
             "blockedOutboundPorts": "block_outbound_ports"}),

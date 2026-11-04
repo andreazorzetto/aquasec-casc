@@ -228,10 +228,11 @@ def reconcile(
         adopting = found is None
 
     # Changes Aqua would refuse are reported, not sent; the rest still applies.
-    plan, not_allowed = _split(kind, actual, key, three_way_diff(desired=desired, actual=actual))
+    wanted = three_way_diff(desired=desired, actual=actual)
     # Off on a field this Aqua version does not have is off already.
-    plan.changes = [c for c in plan.changes
-                    if not (c.change is ChangeType.ADD and is_off_value(c.after))]
+    wanted.changes = [c for c in wanted.changes
+                      if not (c.change is ChangeType.ADD and is_off_value(c.after))]
+    plan, not_allowed = _split(kind, actual, key, wanted)
 
     if plan.is_empty():
         return Result(**common, outcome=Outcome.IN_SYNC, plan=plan, not_allowed=not_allowed)
@@ -274,7 +275,7 @@ def _missed(results: list[Result]) -> set[str]:
     orphan. Deleting it would leave neither.
     """
     return {r.kind for r in results
-            if r.outcome in (Outcome.FAILED, Outcome.BLOCKED)
+            if r.failed or r.outcome is Outcome.BLOCKED
             or (r.outcome is Outcome.DRIFT_DETECTED and r.reason == "Missing")}
 
 
@@ -337,9 +338,9 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options,
             elif kind.kind in missed:
                 results.append(Result(
                     **common, outcome=Outcome.ORPHANED, reason="HeldBack",
-                    message=("not deleted: another file of this kind did not apply, and it "
-                             "may be what replaces this one. Fix that, and it goes on the "
-                             "next run."),
+                    message=("not deleted: another file of this kind is not in Aqua as written "
+                             "(it failed, is blocked, or is ReportOnly and new), and it may be "
+                             "what replaces this one. It goes on the first run where they land."),
                 ))
             elif options.dry_run:
                 results.append(Result(**common, outcome=Outcome.PLANNED, action="delete",

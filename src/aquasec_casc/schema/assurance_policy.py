@@ -296,6 +296,24 @@ ONLY_ON: dict[str, frozenset[AssuranceType]] = {
 }
 
 
+def not_offered_on_this_type(spec: dict) -> list[str]:
+    """Takes out of a spec what its type does not offer, and says what it took.
+
+    Aqua may hold one of these, from an API write or an older version, and it does
+    nothing there. It should not stop the policy being adopted.
+    """
+    taken = []
+    for path, types in ONLY_ON.items():
+        heading, name = path.split(".")
+        if name in (spec.get(heading) or {}) and AssuranceType(spec["assuranceType"]) not in types:
+            del spec[heading][name]
+            taken.append(path)
+    for heading in ("actions", "exceptions", "controls"):
+        if heading in spec and not spec[heading]:
+            del spec[heading]
+    return taken
+
+
 class Controls(Heading):
     """The console's Controls. A control left out is off. Which type offers which
     is in ``ONLY_ON``."""

@@ -123,6 +123,8 @@ class Exported:
     filename: str
     document: dict
     shipped: bool = False
+    left_out: list[str] = field(default_factory=list)
+    """On in Aqua, but it does nothing on this type, so it is not in the file."""
 
 
 @dataclass
@@ -135,6 +137,9 @@ class Skipped:
 class ExportResult:
     exported: list[Exported] = field(default_factory=list)
     skipped: list[Skipped] = field(default_factory=list)
+    left_outside: list[str] = field(default_factory=list)
+    """This instance's objects that --scope or --name left out. With no file, an
+    apply of the folder deletes them."""
 
     def skipped_for_schema(self) -> list[Skipped]:
         return [s for s in self.skipped if s.reason.startswith(NOT_THE_SCHEMA)]
@@ -164,9 +169,10 @@ def export_kind(
         if not name:
             continue
         key = kind.key_of(summary)
-        if scope is not None and scope not in (summary.get("application_scopes") or []):
-            continue
-        if names and not kind.matches(key, names):
+        if ((scope is not None and scope not in (summary.get("application_scopes") or []))
+                or (names and not kind.matches(key, names))):
+            if marker.owner(summary.get("description")) == instance:
+                result.left_outside.append(key)
             continue
 
         full = client.get(kind, key)
@@ -201,6 +207,8 @@ def export_kind(
             spec.pop("description", None)
 
         # Names repeat across a kind's types ("Default"), so the type leads.
+        left_out = kind.drop_on_export(spec) if kind.drop_on_export else []
+
         slug = slugify(key.replace("/", "-"))
         base, n = slug, 2
         while slug in taken:
@@ -230,6 +238,7 @@ def export_kind(
             filename=f"{kind_filename_prefix(kind.kind)}-{slug}.yaml",
             document=document,
             shipped=shipped,
+            left_out=left_out,
         ))
 
     return result

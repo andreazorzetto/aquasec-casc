@@ -116,7 +116,7 @@ Git wins. This is drift being detected and corrected.
 $ cp <the tool's repo>/examples/playground/assurance-policy-image.yaml .
 
 $ aquasec-casc apply -f .
-+ AssurancePolicy/casc-playground-image: created
++ AssurancePolicy/casc-playground-image ('image/casc-playground-image'): created
 
 $ aquasec-casc plan -f . --detailed-exitcode ; echo "exit $?"
 2 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted
@@ -127,13 +127,13 @@ This one is scoped to names that match nothing, so it stays inert.
 
 ## 8. This is what happens on every sync
 
-Show the Job in [argocd.md](argocd.md): `apply -f /config`, as a PreSync hook. Steps 4 to
-6 are what Argo CD runs on every sync. Say plainly what it does not do: a console
+Show the Job in [argocd.md](argocd.md): `apply -f /config`, as an Argo CD hook. Steps 4 to
+6 are what happens on every sync. Say plainly what it does not do: a console
 change stays until the next sync. Closing that gap is what an operator would do.
 
 ## Clean up
 
 ```sh
-git rm -q assurance-policy-image.yaml runtime-policy-demo-devtest.yaml
+rm assurance-policy-image.yaml runtime-policy-demo-devtest.yaml
 aquasec-casc apply -f . --allow-empty       # both files gone: both objects deleted
 ```

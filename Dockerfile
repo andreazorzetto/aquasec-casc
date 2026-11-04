@@ -6,7 +6,12 @@
 #       aquasec-casc:0.1.0 plan -f /config
 #
 # Base images are pinned by digest, Python packages by hash (requirements.lock).
-FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS build
+# Inside an air gap, point these at your mirrors with --build-arg.
+ARG BASE_IMAGE=python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+
+FROM ${BASE_IMAGE} AS build
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 WORKDIR /src
 COPY requirements.lock pyproject.toml README.md LICENSE ./
 COPY src ./src
@@ -16,7 +21,7 @@ RUN python -m venv /opt/aquasec-casc \
     && /opt/aquasec-casc/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
     && /opt/aquasec-casc/bin/pip uninstall -y -q setuptools wheel pip
 
-FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+FROM ${BASE_IMAGE}
 COPY --from=build /opt/aquasec-casc /opt/aquasec-casc
 COPY LICENSE /opt/aquasec-casc/LICENSE
 ENV PATH=/opt/aquasec-casc/bin:$PATH \

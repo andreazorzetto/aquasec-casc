@@ -1,8 +1,7 @@
 # Dev/test baseline runtime policy.
 #
-# This policy deliberately does NOT enable image-compliance blocking. See the
-# commit history for why: Aqua's enforcer evaluates image compliance by image
-# hash, so a non-compliant verdict from the production assurance policy blocks
+# This policy deliberately does NOT enable image-compliance blocking. Aqua's
+# enforcer evaluates image compliance by image hash, so a non-compliant verdict from the production assurance policy blocks
 # that hash everywhere the enforcer sees it -- including here, where dev/test
 # was only ever meant to audit. Running this scope's assurance policy in audit
 # mode does not prevent that; leaving the control out of the runtime policy does.

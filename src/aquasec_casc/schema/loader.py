@@ -27,7 +27,7 @@ YAML_SUFFIXES = (".yaml", ".yml")
 CONFIG_FILENAMES = ("aquasec-casc.yaml", "aquasec-casc.yml")
 
 
-class _StrictLoader(yaml.SafeLoader):
+class StrictLoader(yaml.SafeLoader):
     """SafeLoader that refuses a key written twice in one mapping.
 
     Plain YAML keeps the last and says nothing. In a file where what is left out is
@@ -36,18 +36,21 @@ class _StrictLoader(yaml.SafeLoader):
 
 
 def _no_duplicate_keys(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict:
-    loader.flatten_mapping(node)
+    # Before merge keys are expanded: overriding what "<<" brought in is what they
+    # are for. Only scalars can repeat in a way that means anything.
     seen = set()
     for key_node, _ in node.value:
-        key = loader.construct_object(key_node, deep=True)
-        if key in seen:
+        if not isinstance(key_node, yaml.ScalarNode) or key_node.tag == "tag:yaml.org,2002:merge":
+            continue
+        if key_node.value in seen:
             raise yaml.constructor.ConstructorError(
-                None, None, f"the key {key!r} is written twice", key_node.start_mark)
-        seen.add(key)
+                None, None, f"the key {key_node.value!r} is written twice", key_node.start_mark)
+        seen.add(key_node.value)
+    loader.flatten_mapping(node)
     return loader.construct_mapping(node, deep=True)
 
 
-_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
+StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
 
 
 @dataclass
@@ -249,11 +252,11 @@ def load_file(path: Path | str) -> LoadResult:
 
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise SchemaError(str(path), [SchemaProblem("", f"cannot read file: {exc}")])
 
     try:
-        documents = list(yaml.load_all(text, Loader=_StrictLoader))
+        documents = list(yaml.load_all(text, Loader=StrictLoader))
     except yaml.YAMLError as exc:
         raise SchemaError(str(path), [SchemaProblem("", f"invalid YAML: {exc}")])
 
@@ -274,22 +277,21 @@ def load_dir(path: Path | str) -> LoadResult:
     files claiming the same Aqua object would race each other on every apply.
     """
     path = Path(path)
-    if path.is_file():
-        return load_file(path)
-
-    if not path.is_dir():
+    if not path.exists():
         raise SchemaError(str(path), [SchemaProblem("", "no such file or directory")])
 
     result = LoadResult()
     group = SchemaErrorGroup()
 
-    for file in sorted(p for p in path.rglob("*") if p.suffix.lower() in YAML_SUFFIXES):
-        if file.parent == path and file.name in CONFIG_FILENAMES:
+    for file in ([path] if path.is_file() else
+                 sorted(p for p in path.rglob("*") if p.suffix.lower() in YAML_SUFFIXES)):
+        relative = file.relative_to(path).parts if file != path else ()
+        if len(relative) == 1 and file.name in CONFIG_FILENAMES:
             continue
         # A mounted ConfigMap holds every file twice: as a link at the top, and
         # for real in a hidden "..2026_11_04..." folder. Hidden folders are not
         # configuration: .git, .github.
-        if any(part.startswith(".") for part in file.relative_to(path).parts[:-1]):
+        if any(part.startswith(".") for part in relative[:-1]):
             continue
         try:
             loaded = load_file(file)

@@ -1,8 +1,8 @@
 # Running it from Argo CD
 
-Argo CD runs the tool as a **PreSync hook**: a Kubernetes `Job` that applies the
-configuration to Aqua, once, before each sync. Argo CD knows nothing about Aqua.
-It runs the Job and reads its exit code, so a failed apply fails the sync.
+Argo CD runs the tool as a **hook**: a Kubernetes `Job` that applies the
+configuration to Aqua, once, on each sync. Argo CD knows nothing about Aqua. It
+runs the Job and reads its exit code, so a failed apply fails the sync.
 
 ```
   Git repository                      Kubernetes                         Aqua
@@ -13,10 +13,16 @@ It runs the Job and reads its exit code, so a failed apply fails the sync.
   └───────────────────┘               └─────────────────────────┘       └─────────┘
 ```
 
-**What this does not do.** The Job runs when Argo CD syncs, and at no other time.
-A change made in the Aqua console between syncs stays until the next one. To
-correct drift on a schedule, make the Argo CD Application sync periodically, or
-run `plan --detailed-exitcode` as a scheduled job and alert on exit code 2.
+**How a change reaches Aqua.** The policies are in a ConfigMap, an ordinary resource
+Argo CD tracks. Merge a change and the ConfigMap is out of sync, so Argo CD syncs: it
+applies the ConfigMap, then runs the Job against it. The Job is a `Sync` hook, and comes
+after the ConfigMap, so that it reads the new files. (A `PreSync` hook would run first,
+and read the old ones.)
+
+**What this does not do.** The Job runs when Argo CD syncs, and at no other time. A
+change made in the Aqua console between syncs stays until the next one, and nothing in
+Argo CD notices it. To correct or report drift on a schedule, see
+[Between syncs](#between-syncs).
 
 ## What you need
 
@@ -25,7 +31,7 @@ run `plan --detailed-exitcode` as a scheduled job and alert on exit code 2.
   ([mirroring it](#mirroring-the-image)).
 - An Aqua user for the tool. It needs to read and write runtime and assurance
   policies. On self-hosted Aqua that is a user name and password.
-- Network access from the Job's namespace to the Aqua console, and nothing else.
+- HTTPS access from the Job's namespace to the Aqua console, and nothing else.
 
 ## 1. Put the credentials in a Secret
 
@@ -66,7 +72,7 @@ aqua/
     └── assurance-policy-prod.yaml
 ```
 
-`policies/` is what `aquasec-casc validate -f policies` checks on a laptop or in a
+`policies/` is what `aquasec-casc validate -f aqua/policies` checks on a laptop or in a
 pull request. `export` writes this layout too, for what already exists in Aqua:
 see [adoption.md](adoption.md).
 
@@ -88,21 +94,16 @@ configMapGenerator:
       - policies/assurance-policy-prod.yaml
 generatorOptions:
   disableNameSuffixHash: true      # the Job refers to it by this name
-  annotations:
-    # Argo CD runs PreSync hooks before it applies anything else, so the
-    # ConfigMap has to be a hook too, and go first.
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/sync-wave: "-1"
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 ```
 
 **A file left out of this list is deleted from Aqua on the next sync**, since no
 file then describes the object. That is what Git-driven deletion means, so review
 this list like the policies themselves. (The exceptions are safety nets: nothing is
-deleted of a kind with no file at all, nor while another file of that kind fails.) A ConfigMap also has a size limit of about
-1 MB, which holds a lot of policies, but not without limit.
+deleted of a kind with no file at all, nor while another file of that kind has not
+landed.) Argo CD stores a ConfigMap in an annotation as well, which limits it to about
+256 KB: that holds a lot of policies, but not without limit.
 
-`job.yaml`:
+`job.yaml`, with the internal CA's lines marked. Remove them if you have none:
 
 ```yaml
 apiVersion: batch/v1
@@ -110,7 +111,8 @@ kind: Job
 metadata:
   name: aqua-casc-apply
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "1"            # after the ConfigMap, at wave 0
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 0                   # do not retry a failed apply on its own
@@ -124,6 +126,7 @@ spec:
         runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
+      # imagePullSecrets: [{ name: your-registry }]    # if your mirror needs one
       containers:
         - name: aquasec-casc
           image: registry.internal.example/aquasec-casc:0.1.0   # your mirror; pin the digest
@@ -131,6 +134,8 @@ spec:
           envFrom:
             - secretRef:
                 name: aqua-casc-credentials
+          env:
+            - { name: AQUA_CA_BUNDLE, value: /etc/aqua-ca/ca.pem }    # internal CA
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -141,33 +146,30 @@ spec:
             limits: { memory: 128Mi }
           volumeMounts:
             - { name: config, mountPath: /config, readOnly: true }
+            - { name: ca, mountPath: /etc/aqua-ca, readOnly: true }   # internal CA
       volumes:
         - name: config
           configMap:
             name: aqua-casc-config
-```
-
-With an internal CA, add `AQUA_CA_BUNDLE` and mount the CA:
-
-```yaml
-          env:
-            - { name: AQUA_CA_BUNDLE, value: /etc/aqua-ca/ca.pem }
-          volumeMounts:
-            - { name: ca, mountPath: /etc/aqua-ca, readOnly: true }
-      volumes:
-        - name: ca
-          configMap: { name: aqua-casc-ca }
+        - name: ca                                                    # internal CA
+          configMap:                                                  # internal CA
+            name: aqua-casc-ca                                        # internal CA
 ```
 
 The tool needs no ServiceAccount permissions and writes nothing to the cluster:
-there is no state to keep. To hold it to the Aqua console and nothing else:
+there is no state to keep.
+
+To hold it to the Aqua console and nothing else, add a NetworkPolicy to `resources`.
+Give it the annotation `argocd.argoproj.io/sync-wave: "-1"`, so that it is in place
+before the Job:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: aqua-casc
-  namespace: aqua-casc
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
@@ -180,6 +182,7 @@ spec:
         - namespaceSelector: {}
       ports:
         - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
 ```
 
 ## 3. Create the Argo CD Application
@@ -200,18 +203,22 @@ spec:
     server: https://kubernetes.default.svc
     namespace: aqua-casc
   syncPolicy:
-    automated: {}
+    automated:
+      prune: true
+    retry:                # Argo CD does not try a failed revision again by itself
+      limit: 3
+      backoff: { duration: 2m, factor: 2 }
 ```
 
-Everything this Application creates is a hook, so Argo CD shows it as *Synced* with
-no resources of its own. Start without `automated` if you want to press Sync
-yourself for the first runs.
+Leave out `automated` to press Sync yourself for the first runs.
 
 ## 4. Try it
 
-Start safely. Set `spec.enforcement: ReportOnly` on each policy: the run then
-reports drift and changes nothing. Or use `plan` as the Job's first argument
-instead of `apply`, which never writes.
+Start safely: make the Job's arguments `["plan", "-f", "/config"]`. `plan` never writes,
+and the sync shows you what `apply` would do. When that reads right, change it to
+`apply`. To watch a policy for a while first, set `spec.enforcement: ReportOnly` on it:
+that policy is then reported and not corrected. It does not hold back deletions, so
+add `--no-delete` to the arguments if files may be missing.
 
 Sync, then read the Job's log:
 
@@ -226,7 +233,8 @@ Using environment.
 0 unchanged, 0 created, 0 updated, 1 adopted, 0 deleted
 ```
 
-Add `--output json` to the Job's arguments for a log your tooling can parse.
+`--output json` in the arguments makes standard output JSON for your tooling. The
+`Using environment.` line goes to standard error, and `kubectl logs` shows both.
 
 ## When a sync fails
 
@@ -234,37 +242,61 @@ The Job exits non-zero, and Argo CD marks the sync failed. The log says why:
 
 | Log line | What it means | What to do |
 |---|---|---|
-| `error: ... unknown field` | A file does not match the schema. Nothing was sent. | Fix the file. `validate` catches this before a merge. |
-| `FAILED` on a policy | Aqua refused it; the message is Aqua's. The other policies still applied. | Often a scope that does not exist in Aqua. |
+| `error: ...: N validation problem` | A file does not match the schema. Nothing was sent. | Fix the file. `validate` catches this before a merge. |
+| `x ...: FAILED` | Aqua refused it; the message is Aqua's. The other policies still applied, and nothing of that kind was deleted. | Often a scope that does not exist in Aqua. |
 | `not kept by Aqua: ...` | Aqua accepted the write and did not keep a field. Usually a field this Aqua version lacks. | Update Aqua, or remove the setting from the file. |
-| `blocked` | Another instance manages this policy. Does not fail the run. | Remove it from one of them, or `release --to`. |
+| `error: Sign-in failed` | The credentials, or the console's address. | Check the Secret. Aqua locks an account after repeated failures. |
+| `error: ... could not connect to Aqua` | No route, or the NetworkPolicy. | Check the address and egress. |
 | `the console's TLS certificate could not be verified` | The CA is not trusted. | Set `AQUA_CA_BUNDLE`. |
 
-The default exit code of `apply` does not fail a sync over something left pending,
-such as a blocked policy, only over an error. `--detailed-exitcode` exists for
-scripts; do not use it in this Job, because exit 2 fails the sync.
+These do **not** fail the sync, because they need a person and not a retry. Read the log
+if a sync looks too quiet:
+
+| Log line | What it means |
+|---|---|
+| `x ...: blocked` | Another instance manages this policy. Nothing of that kind is deleted in this run. Remove it from one of them, or `release --to`. |
+| `? ...: orphaned` | A policy with no file was not deleted, and the message says why. |
+| `not allowed: ...` | A change Aqua does not allow, such as the scope of a default policy. The rest applied. |
+
+`--detailed-exitcode` exists for scripts. Do not use it in this Job: exit 2 fails the sync.
+
+## Between syncs
+
+A console change stays until the next sync, and Argo CD does not know about it. Where
+that gap matters, run the same image on a schedule, as a `CronJob` with the same
+`jobTemplate`, the ConfigMap and the Secret:
+
+- to report: `args: ["plan", "-f", "/config", "--detailed-exitcode"]`, and alert on a failed
+  job (exit 2 means drift);
+- to correct: `args: ["apply", "-f", "/config"]`.
 
 ## Mirroring the image
 
 The image is a single artifact with its dependencies pinned, and needs nothing at
 run time other than the Aqua API.
 
-Where there is a connected machine:
+Where there is a connected machine, with your cluster's architecture:
 
 ```sh
-docker pull andreazorzetto/aquasec-casc:0.1.0
+docker pull --platform linux/amd64 andreazorzetto/aquasec-casc:0.1.0
 docker save andreazorzetto/aquasec-casc:0.1.0 -o aquasec-casc-0.1.0.tar
-sha256sum aquasec-casc-0.1.0.tar
+sha256sum aquasec-casc-0.1.0.tar > aquasec-casc-0.1.0.tar.sha256
 ```
 
-Carry the file across, then on the inside:
+Carry both files across, then on the inside:
 
 ```sh
-sha256sum -c ...                   # check it against the sum above
+sha256sum -c aquasec-casc-0.1.0.tar.sha256
 docker load -i aquasec-casc-0.1.0.tar
 docker tag andreazorzetto/aquasec-casc:0.1.0 registry.internal.example/aquasec-casc:0.1.0
 docker push registry.internal.example/aquasec-casc:0.1.0
 ```
 
-Or build it yourself from a clean checkout: `docker build -t aquasec-casc:0.1.0 .`
-needs the base image and PyPI, or your mirrors of them.
+Or build it yourself from a clean checkout. It needs the base image and PyPI, or your
+mirrors of them:
+
+```sh
+docker build -t aquasec-casc:0.1.0 \
+  --build-arg BASE_IMAGE=registry.internal.example/python:3.12-slim \
+  --build-arg PIP_INDEX_URL=https://pypi.internal.example/simple .
+```

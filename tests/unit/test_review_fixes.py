@@ -109,6 +109,113 @@ def test_a_name_glob_does_not_match_the_type():
     assert released("prod") == ["host/prod", "image/prod"]
 
 
+def test_a_rename_whose_new_policy_was_not_stored_right_keeps_the_old_one():
+    class Forgetful(FakeAqua):
+        def get(self, kind, name):
+            obj = super().get(kind, name)
+            if obj and name == "new":
+                obj.pop("no_new_privileges", None)
+            return obj
+
+    aqua = Forgetful({"old": mine("old")})
+    summary = reconcile_all([policy("new", controls={"limitNewPrivileges": True})], aqua, opts())
+    assert "old" in aqua.objects and summary.exit_code(detailed=False) == 1
+
+
+@pytest.mark.parametrize("command", [
+    ["destroy", "-f", "", "--yes"], ["apply", "-f", ""], ["plan", "-f", " "], ["validate", "-f", ""],
+    ["release", "-f", ""], ["export", "--scope", "Global", "-o", ""]])
+def test_an_empty_path_is_refused(command, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    aqua = FakeAqua({"p": mine("p")})
+    code, _, err = run([*command, "--instance", ME], aqua)
+    assert code == 1 and "-f is empty" in err and "p" in aqua.objects
+
+
+def test_export_warns_of_what_this_instance_manages_outside_the_filter(tmp_path):
+    aqua = FakeAqua({"a": mine("a", application_scopes=["One"]), "b": mine("b", application_scopes=["Two"])})
+    code, _, err = run(["export", "--scope", "One", "-o", str(tmp_path), "--instance", ME,
+                        "--kind", "RuntimePolicy"], aqua)
+    assert code == 0 and "an apply of this folder deletes them: b" in err
+
+
+def test_what_a_type_does_not_offer_does_not_stop_adoption():
+    aqua = FakeAqua({"host/p": stored("p", "host", description="d", fail_cicd=True, audit_on_failure=True)})
+    result = export_kind(aqua, ASSURANCE, instance=ME)
+    assert not result.skipped
+    exported = result.exported[0]
+    assert exported.left_out == ["actions.failCicd"]
+    assert exported.document["spec"]["actions"] == {"createAuditMessage": True}
+    resource = load_document(exported.document, "x")[0]
+    r = reconcile_all([resource], aqua, Options(instance=ME, kinds=(ASSURANCE,), dry_run=True)).results[0]
+    assert {c.path for c in r.plan.changes} == {"description", "fail_cicd"}
+
+
+def test_warnings_leave_json_output_alone(tmp_path):
+    import json
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata:
+          name: p
+          annotations: {config.aquasec.com/allow-unknown-fields: "true"}
+        spec: {applicationScopes: [Global], nope: 1}
+        """))
+    code, out, err = run(["validate", "-f", str(tmp_path), "--output", "json"], FakeAqua())
+    assert code == 0 and json.loads(out)["valid"] and "dropped unknown field" in err
+
+
+def test_two_documents_in_one_file_for_one_object_are_refused(tmp_path):
+    path = tmp_path / "p.yaml"
+    body = "apiVersion: config.aquasec.com/v1alpha1\nkind: RuntimePolicy\nmetadata: {name: p}\nspec: {applicationScopes: [Global]}\n"
+    path.write_text(body + "---\n" + body)
+    with pytest.raises((SchemaError, SchemaErrorGroup), match="duplicate"):
+        load_dir(path)
+
+
+def test_a_merge_key_may_be_overridden(tmp_path):
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec:
+          <<: &base {applicationScopes: [Global], enforce: false}
+          enforce: true
+        """))
+    assert load_dir(tmp_path).resources[0].spec.enforce is True
+
+
+def test_a_file_that_is_not_text_is_a_schema_error(tmp_path):
+    (tmp_path / "p.yaml").write_bytes(b"\xff\xfe\x00")
+    with pytest.raises((SchemaError, SchemaErrorGroup), match="cannot read"):
+        load_dir(tmp_path)
+
+
+def test_the_config_file_refuses_a_repeated_key_and_validate_checks_the_instance(tmp_path):
+    _write(tmp_path / "p.yaml", "p")
+    (tmp_path / "aquasec-casc.yaml").write_text("instance: a\ninstance: b\n")
+    code, _, err = run(["plan", "-f", str(tmp_path)], FakeAqua())
+    assert code == 1 and "written twice" in err
+    (tmp_path / "aquasec-casc.yaml").write_text("instance: NOT VALID\n")
+    code, _, _ = run(["validate", "-f", str(tmp_path)], FakeAqua())
+    assert code == 1
+
+
+def test_a_newline_in_a_server_name_cannot_forge_a_line():
+    from aquasec_casc.cli.main import render_text
+    from aquasec_casc.reconcile.result import Result, RunSummary
+    stream = io.StringIO()
+    render_text(RunSummary(results=[Result(kind="K", name="a\nb", outcome=Outcome.DELETED, message="c\nd")]),
+                Out(stream, False), ME)
+    assert stream.getvalue().splitlines()[0] == "- K/a b: deleted"
+    assert stream.getvalue().splitlines()[1] == "    c d"
+
+
+def test_bypass_scope_settings_switch_it_on():
+    assert policy("p", controls={"bypassScope": {"expression": "v1", "variables": [
+        {"attribute": "a", "value": "b"}]}}).spec.controls.bypassScope.enabled is True
+
+
 # --------------------------------------------------------------------------- #
 # Shipped, by key
 # --------------------------------------------------------------------------- #
@@ -245,6 +352,12 @@ def test_export_does_not_write_through_a_symbolic_link(tmp_path):
     code, _, err = run(["export", "--scope", "DevTest", "-o", str(target), "--instance", ME, "--force",
                         "--kind", "RuntimePolicy"], aqua)
     assert code == 1 and "symbolic link" in err and not victim.exists()
+
+
+def test_kubernetes_names_are_kept_when_there_are_no_flags():
+    from aquasec_casc.client.aquasec_client import _kubernetes_read_view
+    policy_ = {"assurance_type": "kubernetes", "kubernetes_controls_names": ["a"], "kubernetes_controls": []}
+    assert _kubernetes_read_view(policy_)["kubernetes_controls_names"] == ["a"]
 
 
 def test_no_credential_field_can_be_managed():

@@ -101,8 +101,22 @@ def _not_offered(title: str, table: dict[str, str]) -> list[str]:
             *(f"| `{k}` | {_one_line(v)} |" for k, v in sorted(table.items())), ""]
 
 
+TESTED = """## Tested against
+
+`tests/integration/test_every_field.py` puts every field here through create, a re-save,
+export, removal and update, on a live tenant, for each type that offers it.
+
+| Aqua | |
+|---|---|
+| SaaS | All of it: 164 cases, and all 61 policies on the tenant export and plan only the marker. |
+| Self-hosted 2022.4 | The API spec and a console export were compared. Not yet run live. |
+
+Sign-in with a user name and password, as self-hosted Aqua uses, is covered by unit tests only.
+"""
+
+
 def main() -> None:
-    lines = [HEAD, *_kind("RuntimePolicy"), *_kind("AssurancePolicy"),
+    lines = [HEAD, TESTED, *_kind("RuntimePolicy"), *_kind("AssurancePolicy"),
              "## Not offered", "",
              "In Aqua's API, and left as Aqua has them: `apply` never changes these. Each was",
              "checked against the API spec, the docs and a live tenant.", "",

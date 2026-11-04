@@ -17,10 +17,10 @@
 name: Aqua configuration
 on:
   pull_request:
-    paths: ["aqua/**"]
+    paths: ["aqua/policies/**"]
   push:
     branches: [main]
-    paths: ["aqua/**"]
+    paths: ["aqua/policies/**"]
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ permissions:
 env:
   # Mirror this into your own registry, and pin it by digest.
   IMAGE: andreazorzetto/aquasec-casc:0.1.0
-  CONFIG: aqua               # the folder with aquasec-casc.yaml and the policies
+  CONFIG: aqua/policies      # the folder with aquasec-casc.yaml and the policies
 
 jobs:
   validate:

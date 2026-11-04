@@ -36,7 +36,7 @@ from ..reconcile import (DestroyOptions, Options, Outcome, ReleaseOptions, RunSu
                          destroy_all, marker, reconcile_all, release_all)
 from ..reconcile.client import ClientError
 from ..schema import SchemaError, SchemaErrorGroup, load_dir
-from ..schema.loader import CONFIG_FILENAMES
+from ..schema.loader import CONFIG_FILENAMES, StrictLoader
 from ..schema.registry import REGISTRY
 
 CONFIG_FILE = CONFIG_FILENAMES[0]
@@ -59,9 +59,11 @@ class Out:
 
     COLOURS = {"green": "32", "yellow": "33", "red": "31", "cyan": "36", "dim": "2", "bold": "1"}
 
-    def __init__(self, stream: TextIO, colour: bool) -> None:
+    def __init__(self, stream: TextIO, colour: bool, notes: "Out | None" = None) -> None:
         self.stream = stream
         self.colour = colour
+        self.notes = notes or self
+        """Where warnings and questions go: not standard output, which may be JSON."""
 
     def paint(self, text: str, colour: str) -> str:
         if not self.colour or colour not in self.COLOURS:
@@ -101,6 +103,11 @@ ask = input
 
 def stdin_is_terminal() -> bool:
     return sys.stdin.isatty()
+
+
+def _one_line(text: str | None) -> str:
+    """Server text on one line: a newline in a name could forge a line of output."""
+    return " ".join(str(text).splitlines()) if text else ""
 
 
 def _value(v) -> str:
@@ -160,8 +167,8 @@ def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = Fa
             sym, label, colour = ("~", "handed over", "cyan")
         else:
             sym, label, colour = _LOOK.get(r.outcome, ("*", r.outcome.value, ""))
-        ref = f"{r.kind}/{r.name}"
-        shown = ref if (r.aqua_name in (None, r.name)) else f"{ref} ({r.aqua_name!r})"
+        ref = f"{r.kind}/{_one_line(r.name)}"
+        shown = ref if (r.aqua_name in (None, r.name)) else f"{ref} ({_one_line(r.aqua_name)!r})"
         out.line(f"{sym} {shown}: {label}", colour)
         if r.plan and r.outcome is not Outcome.CREATED and r.action != "create":
             for text in change_lines(r, instance):
@@ -171,7 +178,7 @@ def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = Fa
         for item in r.not_kept:
             out.line(f"    not kept by Aqua: {item}", "red")
         if r.message:
-            out.line(f"    {r.message}", "dim")
+            out.line(f"    {_one_line(r.message)}", "dim")
     out.line(line or summary.summary_line(), "bold")
 
 
@@ -214,7 +221,7 @@ def read_config_file(root: Path) -> dict:
         candidate = root / name
         if candidate.is_file():
             try:
-                data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+                data = yaml.load(candidate.read_text(encoding="utf-8"), Loader=StrictLoader) or {}
             except yaml.YAMLError as exc:
                 raise UsageError(f"{candidate}: invalid YAML: {exc}")
             if not isinstance(data, dict):
@@ -241,6 +248,14 @@ def resolve_instance(flag: str | None, root: Path, env=os.environ) -> str:
         return marker.validate_instance(str(value))
     except marker.InvalidInstance as exc:
         raise UsageError(str(exc))
+
+
+def _given(path: str) -> Path:
+    """A path the user gave. An empty one is an unset variable, and "" reads as the
+    current directory, or in ``destroy`` as "everything", so it is refused."""
+    if not path.strip():
+        raise UsageError("-f is empty. Is the variable that should hold the path set?")
+    return Path(path)
 
 
 def load_resources(path: Path):
@@ -275,11 +290,16 @@ def default_connect(profile: str | None):
 # --------------------------------------------------------------------------- #
 
 def cmd_validate(args, out: Out, connect: Callable) -> int:
-    path = Path(args.file)
+    path = _given(args.file)
     result = load_resources(path)
-    read_config_file(config_root(path))          # validates aquasec-casc.yaml if present
+    instance = read_config_file(config_root(path)).get("instance")      # checks the file too
+    if instance is not None:
+        try:
+            marker.validate_instance(str(instance))
+        except marker.InvalidInstance as exc:
+            raise UsageError(f"{CONFIG_FILE}: {exc}")
     for warning in result.warnings:
-        out.line(f"warning: {warning}", "yellow")
+        out.notes.line(f"warning: {warning}", "yellow")
     if args.output == "json":
         out.line(json.dumps({"valid": True, "resources": [r.ref for r in result.resources]}, indent=2))
     else:
@@ -288,11 +308,11 @@ def cmd_validate(args, out: Out, connect: Callable) -> int:
 
 
 def _reconcile(args, out: Out, connect: Callable, dry_run: bool) -> int:
-    path = Path(args.file)
+    path = _given(args.file)
     instance = resolve_instance(args.instance, config_root(path))
     result = load_resources(path)
     for warning in result.warnings:
-        out.line(f"warning: {warning}", "yellow")
+        out.notes.line(f"warning: {warning}", "yellow")
 
     client = connect(args.profile)
     # One file is part of the configuration: the rest has no file in this run, and
@@ -319,7 +339,7 @@ def cmd_apply(args, out, connect):
 
 
 def cmd_export(args, out: Out, connect: Callable) -> int:
-    target = Path(args.out_dir)
+    target = _given(args.out_dir)
     if target.exists() and not target.is_dir():
         raise UsageError(f"{target} exists and is not a directory")
     instance = resolve_instance(args.instance, target)
@@ -331,6 +351,7 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
                                      names=args.name or None)
         result.exported.extend(part.exported)
         result.skipped.extend(part.skipped)
+        result.left_outside.extend(part.left_outside)
 
     linked = [e.filename for e in result.exported if (target / e.filename).is_symlink()]
     if linked:
@@ -352,7 +373,7 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
         (target / item.filename).write_text(header + body, encoding="utf-8")
 
     config_written = False
-    if not any((target / n).exists() for n in CONFIG_FILENAMES):
+    if not any((target / n).exists() or (target / n).is_symlink() for n in CONFIG_FILENAMES):
         (target / CONFIG_FILE).write_text(
             f"# {NAME} settings. Commit this file with the configuration.\n"
             f"# The instance name is written into every object this tool manages.\n"
@@ -364,29 +385,41 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
             "exported": [{"aquaName": e.aqua_name, "file": e.filename, "shipped": e.shipped}
                          for e in result.exported],
             "skipped": [{"aquaName": s.aqua_name, "reason": s.reason} for s in result.skipped],
+            "leftOutside": result.left_outside,
+            "leftOut": {e.aqua_name: e.left_out for e in result.exported if e.left_out},
             "configWritten": config_written,
         }, indent=2))
     else:
         for e in result.exported:
             out.line(f"+ {e.filename}  ({e.aqua_name!r}{', shipped by Aqua' if e.shipped else ''})", "green")
         for s in result.skipped:
-            out.line(f"  skipped {s.aqua_name!r}: {s.reason}", "yellow")
+            out.line(f"  skipped {_one_line(s.aqua_name)!r}: {_one_line(s.reason)}", "yellow")
+        for e in result.exported:
+            for path in e.left_out:
+                out.line(f"  {e.aqua_name!r}: {path} is on in Aqua and does nothing on this type; "
+                         "left out, so the first apply switches it off", "yellow")
         if config_written:
             out.line(f"+ {CONFIG_FILE}  (instance: {instance})", "green")
         out.line(f"{len(result.exported)} exported, {len(result.skipped)} skipped -> {target}", "bold")
-        if result.exported:
+        if result.exported and not result.skipped_for_schema():
             out.line(f"Next: commit, then '{NAME} apply -f {target}'. The first apply only adds "
                      "the ownership marker.", "dim")
+    if result.left_outside:
+        out.notes.line(f"warning: {len(result.left_outside)} object(s) this instance manages are "
+                       f"outside --scope or --name, so have no file here, and an apply of this "
+                       f"folder deletes them: {', '.join(result.left_outside)}", "yellow")
     # No file for an object means deleting it, if this instance owns it, so an
     # export that left one out has not done its job.
     if result.skipped_for_schema():
         raise UsageError("objects were left out because they do not fit the schema. If this "
-                         "instance owns them, an apply of this folder deletes them.")
+                         "instance manages them, an apply of this folder deletes them: stop "
+                         f"managing them first with '{NAME} release --name NAME', and they stay "
+                         "with the console.")
     return 0
 
 
 def cmd_release(args, out: Out, connect: Callable) -> int:
-    instance = resolve_instance(args.instance, config_root(Path(args.file)))
+    instance = resolve_instance(args.instance, config_root(_given(args.file)))
     to = None
     if args.to is not None:
         try:
@@ -431,12 +464,12 @@ def cmd_release(args, out: Out, connect: Callable) -> int:
 
 def cmd_destroy(args, out: Out, connect: Callable) -> int:
     """Show the plan, confirm, then delete -- or release what Aqua ships."""
-    if args.file:
-        path = Path(args.file)
+    if args.file is not None:
+        path = _given(args.file)
         instance = resolve_instance(args.instance, config_root(path))
         loaded = load_resources(path)
         for warning in loaded.warnings:
-            out.line(f"warning: {warning}", "yellow")
+            out.notes.line(f"warning: {warning}", "yellow")
         resources = tuple(loaded.resources)
     else:
         instance = resolve_instance(args.instance, Path("."))
@@ -481,10 +514,10 @@ def cmd_destroy(args, out: Out, connect: Callable) -> int:
     if not args.yes:
         if not stdin_is_terminal():
             raise UsageError("destroy needs confirmation: run it in a terminal, or pass --yes.")
-        out.line(f"This deletes {what} owned by instance '{instance}'. It cannot be undone.",
-                 "red")
+        out.notes.line(f"This deletes {what} owned by instance '{instance}'. It cannot be undone.",
+                       "red")
         if ask(f"Type the instance name ({instance}) to confirm: ").strip() != instance:
-            out.line("Destroy cancelled. Nothing was changed.", "bold")
+            out.notes.line("Destroy cancelled. Nothing was changed.", "bold")
             return 1
 
     done = destroy_all(client, DestroyOptions(instance=instance, resources=resources,
@@ -708,7 +741,8 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None,
 
     colour = (not args.no_color and "NO_COLOR" not in os.environ
               and hasattr(stdout, "isatty") and stdout.isatty())
-    out, err = Out(stdout, colour), Out(stderr, colour)
+    err = Out(stderr, colour)
+    out = Out(stdout, colour, notes=err)
 
     try:
         return args.handler(args, out, connect or default_connect)

@@ -251,8 +251,7 @@ default, so the tool leaves them to Aqua rather than owning a field nobody sets.
 
 The token comes back from Aqua on create and is written only to the destination
 named in `tokenSecretRef` — a Kubernetes Secret in-cluster, or a file path when
-standalone. It never reaches stdout or logs, and there are
-tests asserting that.
+standalone. It must never reach stdout or logs.
 
 ---
 

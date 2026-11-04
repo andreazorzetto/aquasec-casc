@@ -45,10 +45,8 @@ enforced by tests (`tests/unit/test_layering.py`), not by discipline.
 
 ## Stateless by design
 
-> **Departure from the original brief.** The brief recommended a state file
-> committed alongside the config (`.aquasec-casc/state.yaml`). The tool has no
-> state at all: no state file, no in-cluster backend, nothing to persist or
-> commit back.
+> The tool has no state at all: no state file, no in-cluster backend, nothing to
+> persist or commit back.
 
 **Why.** In the Argo CD hook the config arrives as a read-only ConfigMap mount
 that is discarded after each run, so a state file could neither be written nor
@@ -201,7 +199,7 @@ file says, and saying so beats a plan that silently never settles.
 
 ## Deletion: GitOps semantics
 
-> **Departure from the original brief.** The brief required deletion to be
+> **Departure from an earlier design.** The brief required deletion to be
 > opted into twice — `spec.deletionPolicy: Delete` on the resource *and*
 > `--allow-delete` on the run. Neither exists. **Removing a file from Git
 > deletes the object on the next apply**, the same as Argo CD with pruning on.
@@ -215,6 +213,10 @@ resource had opted in.
 "orphaned, not deleted (--no-delete)" and never deleted — for runs that must
 never delete, such as a first rollout or a read-mostly pipeline. Under
 `--detailed-exitcode` a held-back orphan counts as pending (exit 2).
+
+One to know about: **a policy duplicated in the console carries the marker with its
+description**. No file describes the copy, so the next apply deletes it. Remove the
+marker line from the copy's description.
 
 **Guardrails that stay:**
 
@@ -231,8 +233,8 @@ never delete, such as a first rollout or a read-mostly pipeline. Under
   Argo CD's automated sync has the same default (`allowEmpty: false`).
 - **Nothing of a kind is deleted while another file of that kind did not land**, by
   failing, being blocked, or being `ReportOnly` and new. The orphan may be what it
-  replaces: a failed rename must not leave neither. The run fails, and the next one
-  finishes the job.
+  replaces: a failed rename must not leave neither. The next run that lands finishes
+  the job.
 - **`-f` with a single file deletes nothing**: the rest of the configuration has no
   file in that run, and that says nothing about it.
 - **`export` fails if it leaves an object out** because it does not fit the schema:
@@ -282,7 +284,7 @@ it is the one command that deletes without a change in Git.
 
 ## Built-in policies
 
-Aqua ships policies of its own: 18 runtime policies, and a Default and others for
+Aqua ships policies of its own: about 18 runtime policies, and a Default and others for
 each assurance type. Verified on a live tenant:
 
 - **They cannot be deleted.** Aqua refuses: "Action forbidden: runtime policy is
@@ -305,8 +307,9 @@ worst that does is that the tool will not delete it.
   Setting it anywhere else is reported as not allowed and not sent; `export`
   writes it only for those two, so adopting a default keeps its exemptions.
 
-So built-ins are **adopt-only**: never created or deleted by the tool, otherwise
-managed like any policy, marker included. `export` includes them -- the default
+So built-ins are **adopt-only**: never deleted by the tool, otherwise managed like any
+policy, marker included. (A file naming one this tenant does not have creates an
+ordinary policy of that name.) `export` includes them -- the default
 policy is usually the first one a customer changes. A scope change on a locked one is
 reported as not allowed and not sent; the rest of the change still applies.
 

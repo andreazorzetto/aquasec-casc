@@ -7,7 +7,7 @@ in Git, and make Aqua match it.
 YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
 ```
 
-- **Run once and exit.** From a laptop, a CI job, or an Argo CD PreSync hook.
+- **Run once and exit.** From a laptop, a CI job, or an Argo CD hook.
 - **Stateless.** Ownership is a marker line in each object's description
   (`managed-by: aquasec-casc/<instance>`); there is no state file.
 - **The file is the whole policy.** What the YAML leaves out of a policy's controls
@@ -41,7 +41,7 @@ spec:
 ```
 
 ```
-$ aquasec-casc plan -f aqua/
+$ aquasec-casc plan -f aqua/policies
 ~ RuntimePolicy/prod-baseline: will be updated
     ! controls.blockNonCompliantImages: false -> true   (API: block_disallowed_images)
 0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
@@ -93,8 +93,8 @@ folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 
 TLS is verified by default, and the tool refuses `http://` addresses and redirects, so
 credentials go only where you pointed them. Point `AQUA_CA_BUNDLE` at an internal CA.
-`AQUA_TLS_INSECURE=true` turns these checks off, and the password goes over the
-unverified connection with it, so keep it to throwaway labs.
+`AQUA_TLS_INSECURE=true` turns off certificate checks and allows `http://`, and the
+password goes over that connection with it, so keep it to throwaway labs.
 
 ## Commands
 
@@ -110,7 +110,7 @@ unverified connection with it, so keep it to throwaway labs.
 | `setup`, `profile` | Save and manage credential profiles. |
 
 Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 when
-`plan` or `apply` leaves changes pending. `--output json` on every command.
+`plan` or `apply` leaves changes pending. `--output json` on everything that talks to Aqua.
 
 ## Documentation
 
@@ -130,10 +130,11 @@ Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 wh
 - **It corrects drift when it runs, and at no other time.** A console change stays
   until the next run. Schedule the run if that gap matters; closing it properly is what
   an operator would do, and that is a later phase.
-- **A rename is a delete and a create**, because Aqua has no rename. Enforcement can
-  lapse only if the new policy fails, since creates run before deletes.
-- **Field support varies by Aqua version.** The tool was tested against SaaS and
-  self-hosted 2022.4; a field a version lacks is reported at `apply`, not guessed at.
+- **A rename is a delete and a create**, because Aqua has no rename. Creates run before
+  deletes, and a failed create holds the delete back, so a policy is never left with
+  neither.
+- **Field support varies by Aqua version.** A field a version lacks is reported at
+  `apply`, not guessed at. See [what it was tested against](docs/schema-reference.md#tested-against).
 - **One Aqua instance per run**, and no scheduling of its own.
 
 ## Roadmap
