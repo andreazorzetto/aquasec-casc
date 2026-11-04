@@ -7,7 +7,8 @@ For each control on each type that offers it, one throwaway policy goes through:
   create with it -> stored as written, and plan is clean
   a console-style re-save (Aqua validates create and update differently) -> clean
   export -> fits the schema and plans clean
-  removed from the file -> switched off, and plan is clean
+  removed from the file -> switched off, and plan is clean (or, for what has a default
+  that differs from Aqua, a failure that changes nothing)
   added back by update -> stored as written, and plan is clean
 
 Safe on a shared tenant: container and host runtime policies are disabled. Function
@@ -113,6 +114,13 @@ def exercise(client, kind: str, type_: str, path: str, value) -> list[str]:
             problems += _clean(client, kind_def, doc, "export")
 
         r, _ = _run(client, kind_def, base)
+        if f"spec.{path}" in kind_def.always_sent:
+            # Removed from the file, its default differs from Aqua: that must fail, and
+            # change nothing. Say it in the file, to go on.
+            if r.reason != "Unstated" or client.get(kind_def, key)[kind_def.field_map.for_canonical(
+                    f"spec.{path}").api] != value:
+                problems.append(f"remove: wanted a safe failure, got {r.outcome.value} {r.message}")
+            return problems
         if r.outcome not in (Outcome.UPDATED, Outcome.IN_SYNC) or r.not_kept:
             problems.append(f"remove: {r.outcome.value} {r.message} {r.not_kept}")
         problems += _clean(client, kind_def, base, "after removing it")
@@ -146,7 +154,7 @@ def test_approved_base_image(client):
     from aquasec.common import _request_with_retry
 
     res = _request_with_retry("GET", f"{client.server}/api/v2/images", client.token,
-                              params={"page": 1, "pagesize": 1}, timeout=client.timeout)
+                              params={"page": 1, "pagesize": 1}, timeout=120)    # slow on a big tenant
     images = res.json().get("result") or []
     if not images:
         pytest.skip("no image is registered on this tenant")
