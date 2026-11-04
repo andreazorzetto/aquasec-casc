@@ -198,6 +198,9 @@ class FieldMap:
                     break
         return canonical
 
+    def for_canonical(self, canonical_path: str) -> FieldMapping:
+        return self._by_canonical[canonical_path]
+
     def from_api_path(self, api_path: str, canonical: dict) -> Any:
         """The value in a canonical document of the field mapped to ``api_path``."""
         for m in self.mappings:

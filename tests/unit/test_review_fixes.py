@@ -410,12 +410,46 @@ def test_a_runtime_policy_left_without_enabled_is_created_on():
     assert (stored_["enabled"], stored_["enforce"], stored_["runtime_type"]) == (True, False, "container")
 
 
-def test_a_runtime_policy_disabled_in_the_console_is_drift_even_if_the_file_says_nothing():
-    aqua = FakeAqua({"p": mine("p", enabled=False, enforce=False, runtime_type="container")})
-    resource = load_document({"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
-                              "metadata": {"name": "p"}, "spec": {"applicationScopes": ["Global"]}}, "t")[0]
-    r = reconcile_all([resource], aqua, opts(dry_run=True)).results[0]
-    assert {c.path: c.after for c in r.plan.changes}.get("enabled") is True
+BARE = {"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
+        "metadata": {"name": "p"}, "spec": {"applicationScopes": ["Global"]}}
+
+
+@pytest.mark.parametrize("held", [{"enabled": False}, {"enforce": True}, {"runtime_type": "host"}])
+def test_a_default_that_differs_from_aqua_fails_and_changes_nothing(held):
+    """Applying it could disable a policy, stop it enforcing, or change its type."""
+    aqua = FakeAqua({"p": mine("p", **held)})
+    summary = reconcile_all([load_document(BARE, "t")[0]], aqua, opts())
+    r = summary.results[0]
+    assert r.outcome is Outcome.FAILED and r.reason == "Unstated"
+    assert "Write it in the file" in r.message and aqua.writes() == []
+    assert summary.exit_code(detailed=False) == 1
+
+
+def test_a_stated_value_is_applied_as_ever():
+    aqua = FakeAqua({"p": mine("p", enabled=False, application_scopes=["Global"])})
+    doc = {**BARE, "spec": {**BARE["spec"], "enabled": True}}
+    reconcile_all([load_document(doc, "t")[0]], aqua, opts())
+    assert aqua.objects["p"]["enabled"] is True
+
+
+def test_a_policys_type_cannot_change():
+    aqua = FakeAqua({"p": mine("p", runtime_type="host")})
+    doc = {**BARE, "spec": {**BARE["spec"], "runtimeType": "container"}}
+    r = reconcile_all([load_document(doc, "t")[0]], aqua, opts()).results[0]
+    assert r.not_allowed and aqua.objects["p"]["runtime_type"] == "host"
+
+
+def test_no_credentials_with_a_read_only_home_is_the_help_text(monkeypatch):
+    from aquasec import config
+
+    from aquasec_casc.client.settings import resolve_settings
+
+    def refuses(*a, **k):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(config, "ConfigManager", refuses)
+    with pytest.raises(ConfigError, match="No Aqua credentials"):
+        resolve_settings(None, {})
 
 
 def test_an_exclusion_removed_from_the_file_is_removed():

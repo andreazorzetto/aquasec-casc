@@ -297,7 +297,10 @@ def resolve_settings(profile: str | None = None, env: Mapping[str, str] | None =
         return settings_from_env(env)
     if config_manager is None:
         from aquasec.config import ConfigManager
-        config_manager = ConfigManager()
+        try:
+            config_manager = ConfigManager()
+        except OSError:              # a read-only home, as in a container
+            raise ConfigError("No Aqua credentials found.\n\n" + _HELP) from None
     if config_manager.list_profiles():
         return settings_from_profile(None, env, config_manager)
     raise ConfigError("No Aqua credentials found.\n\n" + _HELP)

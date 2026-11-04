@@ -130,10 +130,14 @@ belongs to Aqua or the console and is left alone.**
   └────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-**Three fields always have a value**: left out, a runtime policy has `enabled: true`,
-`enforce: false` (audit) and `runtimeType: container`, on create and on update. Aqua's own
-default would create it disabled, with nothing in the file saying so. Removing an
-**exclusion** from `excludeApplicationScopes` removes it too.
+**Three fields have defaults**: left out, a new runtime policy is `enabled: true`,
+`enforce: false` (audit) and `runtimeType: container`. Aqua's own default would create it
+disabled, with nothing in the file saying so. On an existing policy, a left-out field
+whose default differs from what Aqua holds **fails the run and changes nothing**:
+applying the default could disable a policy or stop it enforcing, and ignoring it would
+report in sync with a policy that is not what the file reads as. `export` writes all
+three, so this comes up only in hand-written files. A policy's type cannot change at all.
+Removing an **exclusion** from `excludeApplicationScopes` removes it too.
 
 **The file is the whole policy.** A control the YAML leaves out is off, as on a
 new policy, where Aqua starts every control off (verified live). So the same

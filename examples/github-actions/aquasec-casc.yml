@@ -25,6 +25,11 @@ on:
 permissions:
   contents: read
 
+# One at a time, in order: a late-approved older run would re-apply stale files.
+concurrency:
+  group: aqua-configuration
+  cancel-in-progress: false
+
 env:
   # Mirror this into your own registry, and pin it by digest.
   IMAGE: andreazorzetto/aquasec-casc:0.1.0

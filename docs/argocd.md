@@ -79,7 +79,8 @@ aqua/
 
 `policies/` is what `aquasec-casc validate -f aqua/policies` checks on a laptop or in a
 pull request. `export` writes this layout too, for what already exists in Aqua: see
-[adoption.md](adoption.md). Keep it flat: a ConfigMap's keys cannot hold folders.
+[adoption.md](adoption.md). Keep it flat, with `.yaml` names: a ConfigMap's keys cannot
+hold folders, and the chart refuses to render anything else, rather than leave a file out.
 
 `Chart.yaml`:
 
@@ -97,6 +98,12 @@ a ConfigMap in an annotation as well, which limits it to about 256 KB: that hold
 policies, but not without limit.
 
 ```yaml
+{{- /* A file the glob below would miss has no policy in the Job, which deletes it. */ -}}
+{{- range $path, $_ := .Files.Glob "policies/**" }}
+{{- if not (regexMatch "^policies/[^/]+\\.yaml$" $path) }}
+{{- fail (printf "%s will not reach the ConfigMap: keep policies/ flat, with .yaml names" $path) }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -306,7 +313,8 @@ docker push registry.internal.example/aquasec-casc:0.1.0
 ```
 
 Or build it yourself from a clean checkout. It needs the base image and PyPI, or your
-mirrors of them:
+mirrors of them. A mirror behind an internal CA also needs that CA in the build, so
+mirroring the image above is simpler:
 
 ```sh
 docker build -t aquasec-casc:0.1.0 \

@@ -75,9 +75,14 @@ class KindDef:
     switched on only in the console -- goes off, as on a new policy."""
 
     always_sent: tuple[str, ...] = ()
-    """Canonical paths held to the schema's default when the YAML leaves them out,
-    since Aqua's own default differs and says something the file did not: left to
-    itself, Aqua creates a runtime policy disabled."""
+    """Canonical paths given the schema's default on a create when the YAML leaves
+    them out, since Aqua's own differs and says something the file did not: left to
+    itself, Aqua creates a runtime policy disabled. On an existing object a default
+    that differs from Aqua is an error, for the author to settle: see
+    ``engine._unstated``."""
+
+    immutable: tuple[str, ...] = ()
+    """API paths that cannot change on any existing object."""
 
     kept_when_unset: tuple[str, ...] = ()
     """Canonical prefixes under ``off_when_unset`` exempt from it: left as the
@@ -162,6 +167,7 @@ REGISTRY: dict[str, KindDef] = {
         predefined_immutable=("application_scopes",),
         builtin_names=frozenset(SHIPPED_RUNTIME_POLICIES),
         always_sent=("spec.enabled", "spec.enforce", "spec.runtimeType"),
+        immutable=("runtime_type",),
         off_when_unset=("spec.controls", "spec.excludeApplicationScopes"),
         # Bypass Scope is scope, not a control, and the default container policy
         # ships with it on, exempting Aqua's own components and kube-system.

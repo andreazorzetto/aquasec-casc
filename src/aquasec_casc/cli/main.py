@@ -689,7 +689,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--no-delete", action="store_true",
                        help="report orphaned objects instead of deleting them")
         p.add_argument("--allow-empty", action="store_true",
-                       help="allow deletions even when no resources were loaded")
+                       help="allow deleting everything of a kind with no files in this run")
         p.add_argument("-v", "--verbose", action="store_true", help="also list unchanged objects")
         p.add_argument("--detailed-exitcode", action="store_true",
                        help="exit 2 when anything is (or is left) pending: changes to make, "

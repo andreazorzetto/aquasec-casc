@@ -85,9 +85,12 @@ def _withheld(kind: KindDef, obj: dict | None, key: str, path: str) -> str | Non
     """Why Aqua would refuse a change to ``path`` on this object, or None.
 
     Two rules, both matching what the console allows:
+    * a field no object of this kind can change (a policy's type);
     * a predefined object's locked fields (the defaults' scope);
     * fields that exist only on particular system objects (Bypass Scope).
     """
+    if obj and _touches(path, kind.immutable):
+        return "cannot change once a policy exists; make a new one"
     if is_predefined(kind, obj, key) and _touches(path, kind.predefined_immutable):
         return "cannot change on a default policy"
     for prefix, names in kind.only_on.items():
@@ -116,9 +119,9 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     """The API object the YAML asks for, with the ownership marker in place.
 
     ``exclude_unset`` is load-bearing: a schema default is not a statement of
-    intent, so only fields the author wrote are owned -- except the kind's
-    ``always_sent`` fields, and under its ``off_when_unset`` prefixes, where a
-    field left out means off. Those off values are taken against the server
+    intent, so only fields the author wrote are owned -- except under the kind's
+    ``off_when_unset`` prefixes, where a field left out means off, and, on a create,
+    its ``always_sent`` fields. Those off values are taken against the server
     object, so a create sends none: a new object starts with every control off
     already.
 
@@ -130,7 +133,7 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     # exclude_none: a key with nothing after it, "limitNewPrivileges:", says the
     # same as leaving it out.
     canonical = resource.model_dump(exclude_unset=True, exclude_none=True, mode="json")
-    if kind.always_sent:
+    if kind.always_sent and not actual:
         everything = resource.model_dump(mode="json")
         for path in kind.always_sent:
             if get_path(canonical, path) is MISSING:
@@ -148,6 +151,24 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
 
     assert_not_ownable(list(flatten(desired)), where=resource.ref)
     return desired
+
+
+def _unstated(resource: Resource, kind: KindDef, actual: dict) -> list[str]:
+    """Fields the file leaves out and whose default is not what Aqua holds.
+
+    Applying the default could disable a policy, stop it enforcing, or convert a host
+    policy into a container one; ignoring it would report in sync with a policy that
+    is not what the file reads as. Only the file's author can say which is meant.
+    """
+    canonical = resource.model_dump(exclude_unset=True, mode="json")
+    everything = resource.model_dump(mode="json")
+    found = []
+    for path in kind.always_sent:
+        held = get_path(actual, kind.field_map.for_canonical(path).api)
+        if (get_path(canonical, path) is MISSING and held is not MISSING
+                and held != get_path(everything, path)):
+            found.append(f"{path.removeprefix('spec.')} (Aqua holds {held!r})")
+    return found
 
 
 def _not_kept(kind: KindDef, key: str, plan: Plan, client: AquaClient) -> list[str]:
@@ -232,6 +253,12 @@ def reconcile(
                          "manage the same object -- remove it from one of them."),
             )
         adopting = found is None
+
+    unstated = _unstated(resource, kind, actual)
+    if unstated:
+        return Result(**common, outcome=Outcome.FAILED, reason="Unstated",
+                      message=("the file does not say, and Aqua differs from the default: "
+                               f"{', '.join(unstated)}. Write it in the file; nothing was changed."))
 
     # Changes Aqua would refuse are reported, not sent; the rest still applies.
     wanted = three_way_diff(desired=desired, actual=actual)
