@@ -397,7 +397,7 @@ NOT_OFFERED: dict[str, str] = {
     "maximum_score_exclude_no_fix": "Aqua stores false whatever is sent; use control_exclude_no_fix",
     "registries": "Aqua stores [] whatever is sent",
     "labels": "Aqua stores [] whatever is sent",
-    "images": "Images Blocked: decisions on single images, on the Default policy only. Aqua stores [] on any other; not written to a Default in testing",
+    "images": "Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, and stores [] whatever is sent",
     "allowed_images": "Images Allowed: as images",
     "scap_files": "SCAP: the console offers it as a scanning setting, not a control of the policy",
     "scap_enabled": "see scap_files",

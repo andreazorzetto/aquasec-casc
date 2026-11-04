@@ -307,9 +307,10 @@ each assurance type. Verified on a live tenant:
   defaults** ("Aqua default runtime / host runtime / function runtime policy"),
   where Aqua refuses: "can't change application scope for default policies". Aqua's
   docs say the same of its predefined assurance policies.
-- **No field identifies them everywhere.** `is_ootb_policy` is true on them on SaaS,
-  and false on every one in a 2022.4 export. Assurance policies have no flag, and
-  `author` does not survive an edit: an API edit rewrites it to the editing identity.
+- **No field identifies them everywhere.** `is_ootb_policy` is true on them through the
+  API, and false on every one in a console export, so it is not a thing to rely on in
+  every version. Assurance policies have no flag, and a runtime policy's `author` does not
+  survive an edit: an API edit rewrites it to the editing identity.
 
 So **the registry lists them by name** and also honours the flag and `author:
 system`. A custom policy that takes one of those names is treated as Aqua's: the

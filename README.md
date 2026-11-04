@@ -21,7 +21,8 @@ YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
 
 Supported: **runtime policies** (container, host, function) and **assurance policies**
 (image, host, function, Kubernetes, VMware Tanzu). Every control has been
-[written and read back](tests/integration/test_every_field.py) against a live tenant.
+[written and read back](tests/integration/test_every_field.py) against live SaaS and
+self-hosted tenants: see [what it was tested against](docs/schema-reference.md#tested-against).
 
 ## A policy
 

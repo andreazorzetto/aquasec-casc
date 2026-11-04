@@ -119,8 +119,8 @@ class KindDef:
         return any(fnmatch.fnmatchcase(key if "/" in p else self.name_of(key), p) for p in patterns)
 
 
-#: What Aqua ships. The flag alone will not do: is_ootb_policy is false on every
-#: one of these in a 2022.4 export, so the names are what is certain.
+#: What Aqua ships. The flag alone will not do: is_ootb_policy is false on every one
+#: of these in a console export, so the names are what is certain.
 SHIPPED_RUNTIME_POLICIES = (
     "Aqua default runtime policy", "Aqua default host runtime policy",
     "Aqua default function runtime policy",

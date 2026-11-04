@@ -108,10 +108,11 @@ export, removal and update, on a live tenant, for each type that offers it.
 
 | Aqua | |
 |---|---|
-| SaaS | All of it: 163 cases, and all 61 policies on the tenant export and plan only the marker. |
-| Self-hosted 2022.4 | The API spec and a console export were compared. Not yet run live. |
+| SaaS | All of it, signing in with a user name and password: 163 cases, and all 61 policies on the tenant export and plan only the marker. |
+| Self-hosted, console 10.8.1 | All of it, signing in at `/api/v1/login`: 163 cases, and all 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
 
-Sign-in with a user name and password, as self-hosted Aqua uses, is covered by unit tests only.
+Not tested live: API key sign-in on either, an older self-hosted version (where read-back is what
+reports a field that version lacks), and a CA bundle against a real console (unit tests cover the setting; a throwaway local HTTPS check in review covered the connection).
 """
 
 
