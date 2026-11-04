@@ -209,6 +209,18 @@ class VulnerabilityExploitability(Section):
     exploitTypes: list[ExploitType] | None = None
 
 
+class VulnerabilityExploitabilityAndSeverity(Section):
+    """Fails on a vulnerability with a known exploit of these types, at this severity or
+    higher. Field names read from a policy saved in the console: Aqua's spec does not
+    define them, and it stores whatever is sent."""
+
+    needs = ("exploitTypes", "severity")
+
+    exploitTypes: list[ExploitType] | None = None
+    severity: Severity | None = None
+    useCustomSeverity: bool | None = None
+
+
 class VulnerabilityScore(Section):
     needs = ("range",)
 
@@ -269,6 +281,7 @@ ONLY_ON: dict[str, frozenset[AssuranceType]] = {
     "controls.vulnerabilityScore": _SCANNED,
     "controls.vulnerabilityScoreAndSeverity": _IMAGES,
     "controls.vulnerabilityExploitability": _SCANNED,
+    "controls.vulnerabilityExploitabilityAndSeverity": _IMAGES,
     "controls.cvesBlocked": _SCANNED,
     "controls.sensitiveData": _SCANNED,
     "controls.malware": _CONTENTS,
@@ -323,6 +336,7 @@ class Controls(Heading):
     vulnerabilityScore: VulnerabilityScore | None = None
     vulnerabilityScoreAndSeverity: VulnerabilityScoreAndSeverity | None = None
     vulnerabilityExploitability: VulnerabilityExploitability | None = None
+    vulnerabilityExploitabilityAndSeverity: VulnerabilityExploitabilityAndSeverity | None = None
     cvesBlocked: CvesBlocked | None = None
 
     # --- contents ---------------------------------------------------------------
@@ -341,8 +355,7 @@ class Controls(Heading):
     labelsRequired: Labels | None = None
     microEnforcer: bool | None = None
     osPackageManager: bool | None = None
-    """OS Package Manager, as ``partial_results_image_fail``: stored as written; the
-    pairing of the label with that field is inferred."""
+    """OS Package Manager (the API's ``partial_results_image_fail``)."""
     superuser: bool | None = None
 
     # --- hosts -------------------------------------------------------------------
@@ -386,8 +399,7 @@ NOT_OFFERED: dict[str, str] = {
     "labels": "Aqua stores [] whatever is sent",
     "images": "Images Blocked: decisions on single images, on the Default policy only. Aqua stores [] on any other; not written to a Default in testing",
     "allowed_images": "Images Allowed: as images",
-    "exploitability_and_severity": "Vulnerability Exploitability and Severity: a documented control, but Aqua's spec does not define this field, and Aqua stores anything sent to it, so a wrong name would silently do nothing. Needs one saved from the console to read the names from",
-    "scap_files": "SCAP (self-hosted): needs an OVAL script on the tenant, and none was available to test with",
+    "scap_files": "SCAP: the console offers it as a scanning setting, not a control of the policy",
     "scap_enabled": "see scap_files",
     "auto_scan_configured": "server-assigned",
     "kubernetes_controls": "what kubernetesControls is stored as; the client adapter keeps the three fields in step",
@@ -503,6 +515,10 @@ FIELD_MAP = FieldMap(
             "useCustomSeverity": "aggregated_vulnerability.custom_severity_enabled"}),
         *_list_control("vulnerabilityExploitability", "vulnerability_exploitability",
                        "exploitTypes", "disallow_exploit_types"),
+        *control("vulnerabilityExploitabilityAndSeverity", "exploitability_and_severity.enabled", {
+            "exploitTypes": "exploitability_and_severity.disallow_exploit_types",
+            "severity": "exploitability_and_severity.severity",
+            "useCustomSeverity": "exploitability_and_severity.custom_severity_enabled"}),
         *_list_control("cvesBlocked", "cves_black_list_enabled", "cves", "cves_black_list"),
         *_list_control("customComplianceChecks", "custom_checks_enabled", "scripts", "custom_checks",
                        items={"name": "name"}),

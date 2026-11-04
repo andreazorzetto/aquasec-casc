@@ -234,8 +234,8 @@ def test_a_custom_policy_with_a_name_shipped_on_another_type_is_custom():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("controls,needs", [
-    ({"blockOutdatedImages": True}, "'olderThan' and 'unit'"),
-    ({"blockOutdatedImages": {"olderThan": 6}}, "'unit'"),
+    ({"blockOutdatedImages": True}, "'ageThreshold' and 'unit'"),
+    ({"blockOutdatedImages": {"ageThreshold": 6}}, "'unit'"),
 ])
 def test_a_control_without_what_it_needs_is_refused(controls, needs):
     with pytest.raises(SchemaError, match=needs):

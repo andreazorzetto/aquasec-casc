@@ -28,7 +28,7 @@ RUNTIME: dict[str, tuple[object, tuple[str, ...]]] = {
     "controls.blockNonCompliantResources": (True, (CONTAINER,)),
     "controls.blockUnregisteredImages": (True, (CONTAINER,)),
     "controls.blockNonKubernetesContainers": (True, (CONTAINER,)),
-    "controls.blockOutdatedImages": ({"olderThan": 6, "unit": "months"}, (CONTAINER,)),
+    "controls.blockOutdatedImages": ({"ageThreshold": 6, "unit": "months"}, (CONTAINER,)),
     "controls.registriesAllowed": ({"registries": ["Docker Hub"]}, (CONTAINER,)),
     "controls.blockContainerExec": ({"allowedProcesses": ["/bin/casc-test"]}, (CONTAINER,)),
     "controls.blockReverseShell": ({"allowedProcesses": ["casc-test"], "whitelistedIps": ["10.0.0.0/8"]},
@@ -103,6 +103,9 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
     "controls.vulnerabilityScoreAndSeverity": ({"range": [5.0, 9.0], "severity": "high",
                                                 "useCustomSeverity": True}, (IMAGE, TANZU)),
     "controls.vulnerabilityExploitability": ({"exploitTypes": ["remote", "dos"]}, _ALL),
+    "controls.vulnerabilityExploitabilityAndSeverity": ({
+        "exploitTypes": ["remote", "dos", "local", "webapps", "CISA"], "severity": "high",
+        "useCustomSeverity": True}, (IMAGE, TANZU)),
     "controls.cvesBlocked": ({"cves": ["CVE-2021-44228"]}, _ALL),
     "controls.malware": ({"enableNfsShareScan": True, "scanWindowsRegistryHives": True, "enableInMemoryScan": True,
                           "scanArchives": True, "monitoredPaths": ["/casc-test/"],

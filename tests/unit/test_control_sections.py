@@ -59,7 +59,7 @@ def test_drift_prevention_switch_writes_exec_lockdown_too():
 
 def test_section_names_map_to_the_api():
     body = api({"limitContainerPrivileges": {"hostNetwork": True},
-                "blockOutdatedImages": {"olderThan": 2, "unit": "weeks"},
+                "blockOutdatedImages": {"ageThreshold": 2, "unit": "weeks"},
                 "forensics": {"fullCommandArguments": True},
                 "fileIntegrityMonitoring": {"create": True, "monitor": {"paths": ["/etc/*"]},
                                             "exclude": {"users": ["root"]}}})
@@ -101,12 +101,12 @@ def test_a_hint_never_points_to_a_field_from_elsewhere():
 
 def test_blocking_outdated_images_on_a_host_fails_validation():
     with pytest.raises(SchemaError, match="only available on container"):
-        load_document(doc({"blockOutdatedImages": {"olderThan": 2, "unit": "days"}}, "host"), "t.yaml")
+        load_document(doc({"blockOutdatedImages": {"ageThreshold": 2, "unit": "days"}}, "host"), "t.yaml")
 
 
 def test_switched_off_it_is_fine_on_a_host():
     """Aqua returns it, off, on every policy -- exports carry it."""
-    api({"blockOutdatedImages": {"enabled": False, "olderThan": 0}}, "host")
+    api({"blockOutdatedImages": {"enabled": False, "ageThreshold": 0}}, "host")
 
 
 @pytest.mark.parametrize("controls", [

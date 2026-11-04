@@ -157,9 +157,12 @@ class TimeUnit(str, Enum):
 class BlockOutdatedImages(Section):
     """Block Outdated Images: images older than the threshold do not run."""
 
-    needs = ("olderThan", "unit")
+    renamed: ClassVar[dict[str, str]] = {"olderThan": _renamed("ageThreshold")}
 
-    olderThan: int | None = None
+    needs = ("ageThreshold", "unit")
+
+    ageThreshold: int | None = None
+    """Age Threshold: how old, in ``unit``."""
     unit: TimeUnit | None = None
 
 
@@ -654,7 +657,7 @@ FIELD_MAP = FieldMap(
         ),
         FieldMapping("spec.controls.blockNonKubernetesContainers", "block_non_k8s_containers"),
         *_section("blockOutdatedImages", "block_outdated_images",
-                  {"olderThan": "threshold_value", "unit": "threshold_unit"}),
+                  {"ageThreshold": "threshold_value", "unit": "threshold_unit"}),
         *_section("registriesAllowed", "allowed_registries", {"registries": "allowed_registries"}),
 
         # --- processes -------------------------------------------------------------

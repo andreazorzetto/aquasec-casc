@@ -43,7 +43,7 @@ All under `spec`.
 | `controls.blockNonKubernetesContainers` | true/false | `block_non_k8s_containers` |  |
 | `controls.blockOutdatedImages` | object | | Block Outdated Images: images older than the threshold do not run. |
 | `controls.blockOutdatedImages.enabled` | true/false | `block_outdated_images.enabled` | The control's switch. |
-| `controls.blockOutdatedImages.olderThan` | number | `block_outdated_images.threshold_value` |  |
+| `controls.blockOutdatedImages.ageThreshold` | number | `block_outdated_images.threshold_value` | Age Threshold: how old, in ``unit``. |
 | `controls.blockOutdatedImages.unit` | `days` \| `weeks` \| `months` \| `years` | `block_outdated_images.threshold_unit` |  |
 | `controls.registriesAllowed` | object | | Registries Allowed: images may only come from these. |
 | `controls.registriesAllowed.enabled` | true/false | `allowed_registries.enabled` | The control's switch. |
@@ -236,6 +236,11 @@ All under `spec`.
 | `controls.vulnerabilityExploitability` | object | | Only on cf_application, function, host, image. |
 | `controls.vulnerabilityExploitability.enabled` | true/false | `vulnerability_exploitability` | The control's switch. |
 | `controls.vulnerabilityExploitability.exploitTypes` | list of `CISA` \| `dos` \| `local` \| `remote` \| `webapps` | `disallow_exploit_types` |  |
+| `controls.vulnerabilityExploitabilityAndSeverity` | object | | Fails on a vulnerability with a known exploit of these types, at this severity or higher. Field names read from a policy saved in the console: Aqua's spec does not define them, and it stores whatever is sent. Only on cf_application, image. |
+| `controls.vulnerabilityExploitabilityAndSeverity.enabled` | true/false | `exploitability_and_severity.enabled` | The control's switch. |
+| `controls.vulnerabilityExploitabilityAndSeverity.exploitTypes` | list of `CISA` \| `dos` \| `local` \| `remote` \| `webapps` | `exploitability_and_severity.disallow_exploit_types` |  |
+| `controls.vulnerabilityExploitabilityAndSeverity.severity` | `low` \| `medium` \| `high` \| `critical` | `exploitability_and_severity.severity` |  |
+| `controls.vulnerabilityExploitabilityAndSeverity.useCustomSeverity` | true/false | `exploitability_and_severity.custom_severity_enabled` |  |
 | `controls.cvesBlocked` | object | | Only on cf_application, function, host, image. |
 | `controls.cvesBlocked.enabled` | true/false | `cves_black_list_enabled` | The control's switch. |
 | `controls.cvesBlocked.cves` | list of text | `cves_black_list` |  |
@@ -280,7 +285,7 @@ All under `spec`.
 | `controls.labelsRequired.enabled` | true/false | `required_labels_enabled` | The control's switch. |
 | `controls.labelsRequired.labels` | list of {key, value} | `required_labels` |  |
 | `controls.microEnforcer` | true/false | `force_microenforcer` | Only on cf_application, image. |
-| `controls.osPackageManager` | true/false | `partial_results_image_fail` | OS Package Manager, as ``partial_results_image_fail``: stored as written; the pairing of the label with that field is inferred. Only on cf_application, image. |
+| `controls.osPackageManager` | true/false | `partial_results_image_fail` | OS Package Manager (the API's ``partial_results_image_fail``). Only on cf_application, image. |
 | `controls.superuser` | true/false | `only_none_root_users` | Only on cf_application, image. |
 | `controls.cisBenchmarkForDocker` | true/false | `docker_cis_enabled` | Only on host. |
 | `controls.cisBenchmarkForKubernetes` | true/false | `kube_cis_enabled` | Only on host. |
@@ -377,7 +382,6 @@ checked against the API spec, the docs and a live tenant.
 | `domain` | in the spec; Aqua does not return it |
 | `domain_name` | in the spec; Aqua does not return it |
 | `enabled` | in the spec; Aqua does not return it |
-| `exploitability_and_severity` | Vulnerability Exploitability and Severity: a documented control, but Aqua's spec does not define this field, and Aqua stores anything sent to it, so a wrong name would silently do nothing. Needs one saved from the console to read the names from |
 | `id` | server-assigned |
 | `images` | Images Blocked: decisions on single images, on the Default policy only. Aqua stores [] on any other; not written to a Default in testing |
 | `kubernetes_controls` | what kubernetesControls is stored as; the client adapter keeps the three fields in step |
@@ -395,4 +399,4 @@ checked against the API spec, the docs and a live tenant.
 | `registries` | Aqua stores [] whatever is sent |
 | `resource_categories_enabled` | in the spec; Aqua does not return it |
 | `scap_enabled` | see scap_files |
-| `scap_files` | SCAP (self-hosted): needs an OVAL script on the tenant, and none was available to test with |
+| `scap_files` | SCAP: the console offers it as a scanning setting, not a control of the policy |

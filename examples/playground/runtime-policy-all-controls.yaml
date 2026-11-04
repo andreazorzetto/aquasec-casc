@@ -74,7 +74,7 @@ spec:
     volumesBlocked:
       volumes: ["/", "/boot", "/dev", "/etc", "/proc", "/sys", "/var/run/docker.sock"]
     blockOutdatedImages:
-      olderThan: 6
+      ageThreshold: 6
       unit: months
     portBlock:
       blockedInboundPorts: ["22", "23"]

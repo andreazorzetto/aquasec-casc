@@ -308,3 +308,15 @@ def test_the_recorded_default_is_recognised_exported_and_adopted_without_change(
     resource = load_document(exported.document, "export")[0]
     r = reconcile_all([resource], aqua, Options(**OPTS, dry_run=True)).results[0]
     assert r.action == "adopt" and [c.path for c in r.plan.changes] == ["description"]
+
+
+def test_exploitability_and_severity_as_the_console_saves_it():
+    """Read from a console export: a guessed field name is stored, and does nothing."""
+    resource = load(controls={"vulnerabilityExploitabilityAndSeverity": {
+        "exploitTypes": ["remote", "CISA"], "severity": "high", "useCustomSeverity": True}})
+    api = KIND.field_map.to_api(resource.model_dump(exclude_unset=True, mode="json"))
+    assert api["exploitability_and_severity"] == {
+        "enabled": True, "disallow_exploit_types": ["remote", "CISA"], "severity": "high",
+        "custom_severity_enabled": True}
+    with pytest.raises(SchemaError, match="'exploitTypes' and 'severity'"):
+        load(controls={"vulnerabilityExploitabilityAndSeverity": True})
