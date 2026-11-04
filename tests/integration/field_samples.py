@@ -35,7 +35,8 @@ RUNTIME: dict[str, tuple[object, tuple[str, ...]]] = {
                                    (CONTAINER, HOST)),
     "controls.blockFilelessExec": ({"allowedProcesses": ["casc-test*"]}, (CONTAINER, HOST)),
     "controls.driftPrevention": ({"includeScriptFiles": True, "allowedProcesses": ["casc-*"],
-                                  "applyToChildProcesses": True}, (CONTAINER, FUNCTION)),
+                                  "applyToChildProcesses": True}, (CONTAINER,)),
+    "controls.driftPrevention#function": (True, (FUNCTION,)),
     "controls.executablesAllowed": ({"executables": ["casc-test"]}, (CONTAINER,)),
     "controls.executablesBlocked": ({"executables": ["casc-test"]}, (CONTAINER, HOST, FUNCTION)),
     "controls.limitNewPrivileges": (True, (CONTAINER,)),
@@ -103,7 +104,7 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
                                                 "useCustomSeverity": True}, (IMAGE, TANZU)),
     "controls.vulnerabilityExploitability": ({"exploitTypes": ["remote", "dos"]}, _ALL),
     "controls.cvesBlocked": ({"cves": ["CVE-2021-44228"]}, _ALL),
-    "controls.malware": ({"scanNfsMounts": True, "scanWindowsRegistry": True, "inMemoryScan": True,
+    "controls.malware": ({"enableNfsShareScan": True, "scanWindowsRegistryHives": True, "enableInMemoryScan": True,
                           "scanArchives": True, "monitoredPaths": ["/casc-test/"],
                           "excludedPaths": ["/casc-test/x/"], "action": "alert",
                           "collectForensicFiles": True}, (HOST,)),
@@ -113,16 +114,16 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
     "controls.packagesRequired": ({"packages": PACKAGE}, (IMAGE, HOST, TANZU)),
     "controls.ossLicensesAllowed": ({"licenses": ["MIT"]}, (IMAGE, HOST, TANZU)),
     "controls.ossLicensesBlocked": ({"licenses": ["MIT"]}, (IMAGE, HOST, TANZU)),
-    "controls.dynamicThreatAnalysis": ({"severity": "high"}, (IMAGE, TANZU)),
+    "controls.dynamicThreatAnalysis": ({"severity": "high"}, (IMAGE,)),
     "controls.labelsForbidden": ({"labels": LABEL}, (IMAGE, TANZU)),
     "controls.labelsRequired": ({"labels": LABEL}, (IMAGE, TANZU)),
     "controls.microEnforcer": (True, (IMAGE, TANZU)),
     "controls.osPackageManager": (True, (IMAGE, TANZU)),
     "controls.superuser": (True, (IMAGE, TANZU)),
-    "controls.cisBenchmarkDocker": (True, (HOST,)),
-    "controls.cisBenchmarkKubernetes": (True, (HOST,)),
-    "controls.cisBenchmarkLinux": (True, (HOST,)),
-    "controls.cisBenchmarkWindows": (True, (HOST,)),
+    "controls.cisBenchmarkForDocker": (True, (HOST,)),
+    "controls.cisBenchmarkForKubernetes": (True, (HOST,)),
+    "controls.cisBenchmarkForLinux": (True, (HOST,)),
+    "controls.cisBenchmarkForWindows": (True, (HOST,)),
     "controls.openshiftHardening": (True, (HOST,)),
     "controls.excessivePermissions": (True, (FUNCTION,)),
     "controls.functionIntegrity": (True, (FUNCTION,)),
@@ -133,7 +134,7 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
 }
 
 #: Needs something registered on the tenant: built at run time by the live test.
-ASSURANCE_AT_RUN_TIME = {"spec.controls.approvedBaseImage"}
+ASSURANCE_AT_RUN_TIME = {"spec.controls.approvedBaseImage", "spec.controls.customComplianceChecks"}
 
 ASSURANCE_ELSEWHERE = {"spec.assuranceType", "spec.description", "spec.applicationScopes",
                        "spec.excludeApplicationScopes", "spec.additionalScopeCriteria"}

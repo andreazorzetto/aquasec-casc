@@ -22,7 +22,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
-from .sections import AdditionalScopeCriteria, Heading, Section, control
+from .sections import SCOPE_VARIABLE, AdditionalScopeCriteria, Heading, Section, control
 
 KIND = "AssurancePolicy"
 
@@ -83,13 +83,10 @@ class Actions(Heading):
 # --------------------------------------------------------------------------- #
 
 class GracePeriod(Section):
-    days: int | None = Field(default=None, ge=1, le=999)
+    needs = ("days",)
 
-    @model_validator(mode="after")
-    def _days_are_needed(self):
-        if self.enabled and self.days is None:
-            raise ValueError("needs 'days': how long the grace period is (1-999)")
-        return self
+    days: int | None = Field(default=None, ge=1, le=999)
+    """How long the grace period is (1-999)."""
 
 
 class IgnoreSpecificVulnerabilities(Section):
@@ -157,6 +154,16 @@ class ApprovedBaseImage(Section):
     images: list[BaseImage] | None = None
 
 
+class CheckScript(StrictModel):
+    name: str
+    """A script on this tenant, by name. Aqua fills in the rest, and refuses or
+    empties a script of another type's."""
+
+
+class CustomComplianceChecks(Section):
+    scripts: list[CheckScript] | None = None
+
+
 class CvesBlocked(Section):
     cves: list[str] | None = None
 
@@ -172,6 +179,8 @@ class PermissionsBlocked(Section):
 
 
 class DynamicThreatAnalysis(Section):
+    needs = ("severity",)
+
     severity: Severity | None = None
     """Fails on issues of this severity or higher."""
 
@@ -179,13 +188,11 @@ class DynamicThreatAnalysis(Section):
 class Malware(Section):
     """Malware. The settings are the host policy's."""
 
-    scanNfsMounts: bool | None = None
-    """Enable NFS share scan."""
-    scanWindowsRegistry: bool | None = None
-    """Scan Windows registry hives."""
-    inMemoryScan: bool | None = None
-    """Enable In-memory scan."""
+    enableNfsShareScan: bool | None = None
+    scanWindowsRegistryHives: bool | None = None
+    enableInMemoryScan: bool | None = None
     scanArchives: bool | None = None
+    """``scan_malware_in_archives``. In the API; no label in Aqua's docs."""
     monitoredPaths: list[str] | None = None
     excludedPaths: list[str] | None = None
     action: str | None = None
@@ -203,17 +210,24 @@ class VulnerabilityExploitability(Section):
 
 
 class VulnerabilityScore(Section):
+    needs = ("range",)
+
     range: list[float] | None = Field(default=None, min_length=2, max_length=2)
-    """``[from, to]``: fails on vulnerabilities whose score is in the range."""
+    """``[from, to]``: fails on vulnerabilities whose score is in the range. A
+    threshold is ``[7, 10]``."""
 
 
 class VulnerabilityScoreAndSeverity(Section):
+    needs = ("range", "severity")
+
     range: list[float] | None = Field(default=None, min_length=2, max_length=2)
     severity: Severity | None = None
     useCustomSeverity: bool | None = None
 
 
 class VulnerabilitySeverity(Section):
+    needs = ("severity",)
+
     severity: Severity | None = None
     """Fails at this severity or higher."""
     useCustomSeverity: bool | None = None
@@ -229,34 +243,62 @@ class AutoScan(Section):
     weekDays: list[str] | None = None
 
 
-#: Controls the console offers on some types only. Aqua stores them on any type
-#: and they do nothing there, silently, so ``validate`` says so.
+_T = AssuranceType
+_IMAGES = frozenset({_T.IMAGE, _T.CF_APPLICATION})
+_CONTENTS = frozenset({_T.IMAGE, _T.HOST, _T.CF_APPLICATION})
+_SCANNED = frozenset({_T.IMAGE, _T.HOST, _T.FUNCTION, _T.CF_APPLICATION})
+_HOST = frozenset({_T.HOST})
+_FUNCTION = frozenset({_T.FUNCTION})
+_KUBERNETES = frozenset({_T.KUBERNETES})
+
+#: What the console offers on some types only, from Aqua's docs for each type. Aqua
+#: stores any of these on any type, where it does nothing, silently, so ``validate``
+#: says so.
 ONLY_ON: dict[str, frozenset[AssuranceType]] = {
-    "approvedBaseImage": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "dynamicThreatAnalysis": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "labelsForbidden": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "labelsRequired": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "microEnforcer": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "osPackageManager": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "superuser": frozenset({AssuranceType.IMAGE, AssuranceType.CF_APPLICATION}),
-    "cisBenchmarkDocker": frozenset({AssuranceType.HOST}),
-    "cisBenchmarkKubernetes": frozenset({AssuranceType.HOST}),
-    "cisBenchmarkLinux": frozenset({AssuranceType.HOST}),
-    "cisBenchmarkWindows": frozenset({AssuranceType.HOST}),
-    "openshiftHardening": frozenset({AssuranceType.HOST}),
-    "excessivePermissions": frozenset({AssuranceType.FUNCTION}),
-    "functionIntegrity": frozenset({AssuranceType.FUNCTION}),
-    "permissionsBlocked": frozenset({AssuranceType.FUNCTION}),
-    "kubernetesControls": frozenset({AssuranceType.KUBERNETES}),
+    "actions.failCicd": frozenset({_T.IMAGE, _T.FUNCTION, _T.CF_APPLICATION}),
+    "actions.blockResources": _KUBERNETES,
+    "actions.displayWarningMessage": _KUBERNETES,
+    "exceptions.ignoreNoFix": _SCANNED,
+    "exceptions.ignoreRecentlyPublished": _SCANNED,
+    "exceptions.ignoreRecentlyPublishedRunning": _SCANNED,
+    "exceptions.ignoreRecentlyFixed": _IMAGES,
+    "exceptions.ignoreSpecificVulnerabilities": _SCANNED,
+    "exceptions.ignorePaths": _SCANNED,
+    "exceptions.ignoreBaseImage": _IMAGES,
+    "controls.vulnerabilitySeverity": _SCANNED,
+    "controls.vulnerabilityScore": _SCANNED,
+    "controls.vulnerabilityScoreAndSeverity": _IMAGES,
+    "controls.vulnerabilityExploitability": _SCANNED,
+    "controls.cvesBlocked": _SCANNED,
+    "controls.sensitiveData": _SCANNED,
+    "controls.malware": _CONTENTS,
+    "controls.packagesBlocked": _CONTENTS,
+    "controls.packagesRequired": _CONTENTS,
+    "controls.ossLicensesAllowed": _CONTENTS,
+    "controls.ossLicensesBlocked": _CONTENTS,
+    "controls.customComplianceChecks": _CONTENTS,
+    "controls.approvedBaseImage": _IMAGES,
+    "controls.dynamicThreatAnalysis": frozenset({_T.IMAGE}),
+    "controls.labelsForbidden": _IMAGES,
+    "controls.labelsRequired": _IMAGES,
+    "controls.microEnforcer": _IMAGES,
+    "controls.osPackageManager": _IMAGES,
+    "controls.superuser": _IMAGES,
+    "controls.cisBenchmarkForDocker": _HOST,
+    "controls.cisBenchmarkForKubernetes": _HOST,
+    "controls.cisBenchmarkForLinux": _HOST,
+    "controls.cisBenchmarkForWindows": _HOST,
+    "controls.openshiftHardening": _HOST,
+    "controls.excessivePermissions": _FUNCTION,
+    "controls.functionIntegrity": _FUNCTION,
+    "controls.permissionsBlocked": _FUNCTION,
+    "controls.kubernetesControls": _KUBERNETES,
 }
 
 
 class Controls(Heading):
-    """The console's Controls. A control left out is off.
-
-    Which type offers which is in ``ONLY_ON``; the rest are on the image, host
-    and function policies, as the console lists them.
-    """
+    """The console's Controls. A control left out is off. Which type offers which
+    is in ``ONLY_ON``."""
 
     # --- vulnerabilities ---------------------------------------------------------
     vulnerabilitySeverity: VulnerabilitySeverity | None = None
@@ -272,6 +314,7 @@ class Controls(Heading):
     packagesRequired: Packages | None = None
     ossLicensesAllowed: Licenses | None = None
     ossLicensesBlocked: Licenses | None = None
+    customComplianceChecks: CustomComplianceChecks | None = None
 
     # --- images ------------------------------------------------------------------
     approvedBaseImage: ApprovedBaseImage | None = None
@@ -280,15 +323,17 @@ class Controls(Heading):
     labelsRequired: Labels | None = None
     microEnforcer: bool | None = None
     osPackageManager: bool | None = None
+    """OS Package Manager, as ``partial_results_image_fail``: stored as written; the
+    pairing of the label with that field is inferred."""
     superuser: bool | None = None
 
     # --- hosts -------------------------------------------------------------------
-    cisBenchmarkDocker: bool | None = None
-    cisBenchmarkKubernetes: bool | None = None
-    cisBenchmarkLinux: bool | None = None
-    cisBenchmarkWindows: bool | None = None
+    cisBenchmarkForDocker: bool | None = None
+    cisBenchmarkForKubernetes: bool | None = None
+    cisBenchmarkForLinux: bool | None = None
+    cisBenchmarkForWindows: bool | None = None
     openshiftHardening: bool | None = None
-    """Aqua says not to use it: use cisBenchmarkKubernetes."""
+    """Aqua says not to use it: use cisBenchmarkForKubernetes."""
 
     # --- functions ---------------------------------------------------------------
     excessivePermissions: bool | None = None
@@ -321,18 +366,16 @@ NOT_OFFERED: dict[str, str] = {
     "maximum_score_exclude_no_fix": "Aqua stores false whatever is sent; use control_exclude_no_fix",
     "registries": "Aqua stores [] whatever is sent",
     "labels": "Aqua stores [] whatever is sent",
-    "images": "Images Blocked: decisions on single images, made with the Block action; Aqua stores [] here",
-    "allowed_images": "Images Allowed: decisions on single images, made with the Approve action; Aqua stores [] here",
-    "exploitability_and_severity": "Vulnerability Exploitability and Severity: free-form and undocumented, and empty on every policy seen, so its field names cannot be checked",
-    "custom_checks": "Custom Compliance Checks: scripts are objects of their own on the tenant",
-    "custom_checks_enabled": "see custom_checks",
-    "scap_files": "SCAP: scripts are objects of their own on the tenant",
+    "images": "Images Blocked: decisions on single images, on the Default policy only. Aqua stores [] on any other; not written to a Default in testing",
+    "allowed_images": "Images Allowed: as images",
+    "exploitability_and_severity": "Vulnerability Exploitability and Severity: a documented control, but Aqua's spec does not define this field, and Aqua stores anything sent to it, so a wrong name would silently do nothing. Needs one saved from the console to read the names from",
+    "scap_files": "SCAP (self-hosted): needs an OVAL script on the tenant, and none was available to test with",
     "scap_enabled": "see scap_files",
     "auto_scan_configured": "server-assigned",
     "kubernetes_controls": "what kubernetesControls is stored as; the client adapter keeps the three fields in step",
     "kubernetes_controls_avd_ids": "see kubernetes_controls",
     "read_only": "Aqua refuses it for an API user (HTTP 403)",
-    "policy_settings.is_audit_checked": "no console label; audit_on_failure is the action",
+    "policy_settings.is_audit_checked": "no label in Aqua's docs; audit_on_failure is the action on every shipped policy",
     "permission": "server-assigned; Aqua stores \"Write\" whatever is sent",
     "id": "server-assigned", "name": "the name is the file's", "author": "server-assigned",
     "lastupdate": "server-assigned", "FFMap": "server-assigned",
@@ -365,13 +408,14 @@ class AssurancePolicySpec(ManagedSpec):
     controls: Controls = Field(default_factory=Controls)
 
     @model_validator(mode="after")
-    def _controls_this_type_offers(self):
-        for name, types in ONLY_ON.items():
-            value = getattr(self.controls, name)
+    def _what_this_type_offers(self):
+        for path, types in ONLY_ON.items():
+            heading, name = path.split(".")
+            value = getattr(getattr(self, heading), name)
             on = value.enabled if isinstance(value, Section) else bool(value)
             if on and self.assuranceType not in types:
                 names = " and ".join(sorted(t.value for t in types))
-                raise ValueError(f"controls.{name} is only available on {names} policies.")
+                raise ValueError(f"{path} is only available on {names} policies.")
         return self
 
 
@@ -406,7 +450,7 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.applicationScopes", "application_scopes"),
         FieldMapping("spec.excludeApplicationScopes", "exclude_application_scopes"),
         FieldMapping("spec.additionalScopeCriteria.expression", "scope.expression"),
-        FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables"),
+        FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables", items=SCOPE_VARIABLE),
 
         # --- actions -----------------------------------------------------------------
         FieldMapping("spec.actions.createAuditMessage", "audit_on_failure"),
@@ -442,11 +486,13 @@ FIELD_MAP = FieldMap(
         *_list_control("vulnerabilityExploitability", "vulnerability_exploitability",
                        "exploitTypes", "disallow_exploit_types"),
         *_list_control("cvesBlocked", "cves_black_list_enabled", "cves", "cves_black_list"),
+        *_list_control("customComplianceChecks", "custom_checks_enabled", "scripts", "custom_checks",
+                       items={"name": "name"}),
 
         # --- contents ----------------------------------------------------------------
         *control("malware", "disallow_malware", {
-            "scanNfsMounts": "scan_nfs_mounts", "scanWindowsRegistry": "scan_windows_registry",
-            "inMemoryScan": "scan_process_memory", "scanArchives": "scan_malware_in_archives",
+            "enableNfsShareScan": "scan_nfs_mounts", "scanWindowsRegistryHives": "scan_windows_registry",
+            "enableInMemoryScan": "scan_process_memory", "scanArchives": "scan_malware_in_archives",
             "monitoredPaths": "monitored_malware_paths",
             "excludedPaths": "exceptional_monitored_malware_paths",
             "action": "malware_action", "collectForensicFiles": "file_forensic_collection"}),
@@ -475,10 +521,10 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.controls.superuser", "only_none_root_users"),
 
         # --- hosts -------------------------------------------------------------------
-        FieldMapping("spec.controls.cisBenchmarkDocker", "docker_cis_enabled"),
-        FieldMapping("spec.controls.cisBenchmarkKubernetes", "kube_cis_enabled"),
-        FieldMapping("spec.controls.cisBenchmarkLinux", "linux_cis_enabled"),
-        FieldMapping("spec.controls.cisBenchmarkWindows", "windows_cis_enabled"),
+        FieldMapping("spec.controls.cisBenchmarkForDocker", "docker_cis_enabled"),
+        FieldMapping("spec.controls.cisBenchmarkForKubernetes", "kube_cis_enabled"),
+        FieldMapping("spec.controls.cisBenchmarkForLinux", "linux_cis_enabled"),
+        FieldMapping("spec.controls.cisBenchmarkForWindows", "windows_cis_enabled"),
         FieldMapping("spec.controls.openshiftHardening", "openshift_hardening_enabled"),
 
         # --- functions ---------------------------------------------------------------

@@ -20,7 +20,6 @@ objects again.
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass, field
 
 from ..schema.registry import REGISTRY, KindDef
@@ -38,7 +37,8 @@ class ReleaseOptions:
     """Hand over to this instance instead of leaving the objects unmanaged."""
 
     names: tuple[str, ...] = ()
-    """Only objects whose Aqua name matches one of these globs. Empty: all."""
+    """Only objects whose Aqua name matches one of these globs (see
+    ``KindDef.matches``). Empty: all."""
 
     dry_run: bool = False
 
@@ -86,8 +86,7 @@ def release_all(client: AquaClient, options: ReleaseOptions) -> RunSummary:
             name = kind.key_of(obj)
             if marker.owner(obj.get("description")) != options.instance:
                 continue
-            if options.names and not any(fnmatch.fnmatchcase(n, p) for n in (name, kind.name_of(name))
-                                         for p in options.names):
+            if options.names and not kind.matches(name, options.names):
                 continue
 
             common = dict(kind=kind.kind, name=name, aqua_name=name)

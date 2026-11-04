@@ -57,7 +57,7 @@ def test_connect_saas_key_reads_the_console_from_the_token(api_auth, _urls):
 @patch.object(ac, "api_auth", return_value="tok")
 def test_connect_applies_tls_and_timeout_library_wide(_api_auth):
     ac.connect(Settings(credentials=key_creds(console_url="https://x"), verify="/ca.pem", timeout=7))
-    assert get_request_defaults() == {"verify": "/ca.pem", "timeout": 7}
+    assert get_request_defaults() == {"verify": "/ca.pem", "timeout": 7, "allow_redirects": False}
 
 
 @patch.object(ac, "user_pass_onprem_auth", return_value="tok")

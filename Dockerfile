@@ -10,9 +10,11 @@ FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da52
 WORKDIR /src
 COPY requirements.lock pyproject.toml README.md LICENSE ./
 COPY src ./src
+# setuptools and wheel come from the lock too, so nothing is fetched unhashed.
 RUN python -m venv /opt/aquasec-casc \
     && /opt/aquasec-casc/bin/pip install --no-cache-dir --require-hashes -r requirements.lock \
-    && /opt/aquasec-casc/bin/pip install --no-cache-dir --no-deps .
+    && /opt/aquasec-casc/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
+    && /opt/aquasec-casc/bin/pip uninstall -y -q setuptools wheel pip
 
 FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
 COPY --from=build /opt/aquasec-casc /opt/aquasec-casc

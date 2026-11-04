@@ -56,7 +56,7 @@ def _one_line(text: str | None) -> str:
     return text.replace("|", "\\|")
 
 
-def _rows(model: type[BaseModel], prefix: str, field_map) -> list[str]:
+def _rows(model: type[BaseModel], prefix: str, field_map, kind: str) -> list[str]:
     api_of = {m.canonical: m for m in field_map.mappings}
     rows = []
     for name, info in model.model_fields.items():
@@ -68,14 +68,14 @@ def _rows(model: type[BaseModel], prefix: str, field_map) -> list[str]:
         if name in ("enforcement", "aquaName"):
             continue
         path = f"{prefix}{name}"
-        only = (" Only on " + ", ".join(sorted(t.value for t in ONLY_ON[name])) + "."
-                if name in ONLY_ON and prefix == "controls." else "")
+        only = (" Only on " + ", ".join(sorted(t.value for t in ONLY_ON[path])) + "."
+                if path in ONLY_ON and kind == "AssurancePolicy" else "")
         inner = _unwrap(info.annotation)
         if isinstance(inner, type) and issubclass(inner, BaseModel):
             text = _one_line(info.description or inner.__doc__) + only
             if text:
                 rows.append(f"| `{path}` | object | | {text.strip()} |")
-            rows.extend(_rows(inner, f"{path}.", field_map))
+            rows.extend(_rows(inner, f"{path}.", field_map, kind))
             continue
         mapping = api_of.get(f"spec.{path}")
         api = f"`{mapping.api}`" if mapping else ""
@@ -90,7 +90,7 @@ def _kind(kind: str) -> list[str]:
     kind_def = registry.get(kind)
     spec = kind_def.model.model_fields["spec"].annotation
     return [f"## {kind}", "", "All under `spec`.", "", "| Field | Type | API field | |", "|---|---|---|---|",
-            *_rows(spec, "", kind_def.field_map),
+            *_rows(spec, "", kind_def.field_map, kind),
             "| `aquaName` | text | `name` | The name in Aqua, when it is not a valid `metadata.name`. Defaults to `metadata.name`. |",
             "| `enforcement` | `Reconcile` \\| `ReportOnly` | | `ReportOnly` reports drift and changes nothing. |",
             ""]

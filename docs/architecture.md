@@ -224,11 +224,19 @@ never delete, such as a first rollout or a read-mostly pipeline. Under
 - `plan` lists every pending deletion.
 - Within one apply, **all creates and updates run before any delete**, so a
   Git-side rename never leaves a moment with neither policy in place.
-- **A run that loads no resources at all deletes nothing**, unless
-  `--allow-empty` is given. An empty config directory — a wrong path, a
-  ConfigMap that did not mount — is far more likely a mistake than an
-  instruction to delete everything. Argo CD's automated sync has the same
-  default (`allowEmpty: false`).
+- **A kind with no files in the run has nothing deleted**, unless `--allow-empty`
+  is given. An empty config directory — a wrong path, a ConfigMap that did not
+  mount — is far more likely a mistake than an instruction to delete everything,
+  and so is a folder of runtime policies when the instance also owns assurance ones.
+  Argo CD's automated sync has the same default (`allowEmpty: false`).
+- **Nothing of a kind is deleted while another file of that kind did not land**, by
+  failing, being blocked, or being `ReportOnly` and new. The orphan may be what it
+  replaces: a failed rename must not leave neither. The run fails, and the next one
+  finishes the job.
+- **`-f` with a single file deletes nothing**: the rest of the configuration has no
+  file in that run, and that says nothing about it.
+- **`export` fails if it leaves an object out** because it does not fit the schema:
+  with no file, an apply of that folder would delete the object if this instance owns it.
 
 ---
 

@@ -49,7 +49,8 @@ def _translate(exc: Exception, action: str) -> ClientError:
                            "AQUA_API_ENDPOINT and network access from where this runs.")
     if isinstance(exc, AquaError):
         return ClientError(f"{action}: {exc}", status=exc.status_code)
-    return ClientError(f"{action}: {type(exc).__name__}: {exc}")
+    # Not the text: a requests error can quote a header, and so a key.
+    return ClientError(f"{action}: {type(exc).__name__}")
 
 
 # --------------------------------------------------------------------------- #
@@ -86,6 +87,8 @@ def _console_url(credentials: Credentials, token: str) -> str:
     url = (get_console_urls_from_token(token) or {}).get("console")
     if not url:
         raise ConfigError("Could not work out the console URL from the token; set AQUA_URL.")
+    if not url.lower().startswith("https://"):
+        raise ConfigError(f"The token names a console that is not HTTPS: {url}. Set AQUA_URL.")
     return url
 
 
@@ -150,9 +153,14 @@ def _all_assurance_policies(c) -> list[dict]:
     """Every type's, each carrying its type: names are unique only within one."""
     found = []
     for assurance_type in ap.ASSURANCE_TYPES:
-        for policy in ap.get_all_assurance_policies(c.server, c.token, assurance_type,
-                                                    timeout=c.timeout):
-            found.append({"assurance_type": assurance_type, **policy})
+        try:
+            policies = ap.get_all_assurance_policies(c.server, c.token, assurance_type,
+                                                     timeout=c.timeout)
+        except AquaError as exc:
+            if exc.status_code in (400, 404):    # a type this Aqua does not have
+                continue
+            raise
+        found.extend({**policy, "assurance_type": assurance_type} for policy in policies)
     return found
 
 
@@ -259,7 +267,9 @@ def connect(settings: Settings) -> AquasecClient:
     Sets library-wide state (TLS, timeout, token refresh). That is fine for a
     run-once CLI process; a long-running operator would hold one client.
     """
-    set_request_defaults(verify=settings.verify, timeout=settings.timeout)
+    # No redirects: a console that sends the sign-in elsewhere gets an error, not the
+    # password.
+    set_request_defaults(verify=settings.verify, timeout=settings.timeout, allow_redirects=False)
 
     credentials = settings.credentials
     token = sign_in(credentials)

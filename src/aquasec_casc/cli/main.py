@@ -10,7 +10,7 @@ Exit codes:
             --detailed-exitcode (as terraform plan)
   apply     0 done, 1 error; 2 when something is left pending, only with
             --detailed-exitcode (Argo CD fails a sync on any non-zero exit)
-  export    0 done, 1 error
+  export    0 done, 1 error, or an object left out because it does not fit the schema
   release   0 done (or nothing to release), 1 error
   destroy   0 done (or nothing to destroy), 1 error or not confirmed
   schema, setup, profile   0 done, 1 error
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Callable, TextIO
@@ -50,6 +51,9 @@ class UsageError(Exception):
 # Output
 # --------------------------------------------------------------------------- #
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
 class Out:
     """Writes text, coloured only when it goes to a terminal."""
 
@@ -65,6 +69,8 @@ class Out:
         return f"\033[{self.COLOURS[colour]}m{text}\033[0m"
 
     def line(self, text: str = "", colour: str = "") -> None:
+        # Names and messages come from the server: no terminal control through them.
+        text = _CONTROL.sub("?", text)
         print(self.paint(text, colour) if colour else text, file=self.stream)
 
 
@@ -256,6 +262,9 @@ def default_connect(profile: str | None):
     try:
         settings = resolve_settings(profile)
         print(f"Using {settings.source}.", file=sys.stderr)
+        if settings.verify is False:
+            print("warning: TLS verification is off (AQUA_TLS_INSECURE): the password goes "
+                  "over a connection nothing has verified.", file=sys.stderr)
         return connect(settings)
     except ConfigError as exc:
         raise UsageError(str(exc))
@@ -286,8 +295,10 @@ def _reconcile(args, out: Out, connect: Callable, dry_run: bool) -> int:
         out.line(f"warning: {warning}", "yellow")
 
     client = connect(args.profile)
+    # One file is part of the configuration: the rest has no file in this run, and
+    # that does not mean it should go.
     options = Options(instance=instance, dry_run=dry_run, no_delete=args.no_delete,
-                      allow_empty=args.allow_empty)
+                      allow_empty=args.allow_empty, scan_orphans=not path.is_file())
     summary = reconcile_all(result.resources, client, options)
 
     detailed = args.detailed_exitcode
@@ -321,6 +332,9 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
         result.exported.extend(part.exported)
         result.skipped.extend(part.skipped)
 
+    linked = [e.filename for e in result.exported if (target / e.filename).is_symlink()]
+    if linked:
+        raise UsageError(f"{target / linked[0]} is a symbolic link; refusing to write through it.")
     existing = [e.filename for e in result.exported if (target / e.filename).exists()]
     if existing and not args.force:
         raise UsageError(
@@ -363,6 +377,11 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
         if result.exported:
             out.line(f"Next: commit, then '{NAME} apply -f {target}'. The first apply only adds "
                      "the ownership marker.", "dim")
+    # No file for an object means deleting it, if this instance owns it, so an
+    # export that left one out has not done its job.
+    if result.skipped_for_schema():
+        raise UsageError("objects were left out because they do not fit the schema. If this "
+                         "instance owns them, an apply of this folder deletes them.")
     return 0
 
 
@@ -566,7 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     def common(p, needs_files=True):
         if needs_files:
             p.add_argument("-f", "--file", required=True, metavar="PATH",
-                           help="config directory (or a single YAML file)")
+                           help="config directory, or a single YAML file (one file deletes nothing)")
         p.add_argument("--output", choices=("text", "json"), default="text")
         p.add_argument("--no-color", action="store_true", help="never colour the output")
 

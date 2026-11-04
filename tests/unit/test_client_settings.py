@@ -180,7 +180,7 @@ PROFILES = {
     "saas-user": ({"auth_method": "user_pass", "api_endpoint": "https://eu-1.api.cloudsploit.com",
                    "csp_endpoint": "https://tenant.cloud.aquasec.com"},
                   {"username": "me@example.com", "password": PASSWORD}),
-    "onprem": ({"auth_method": "user_pass", "csp_endpoint": "http://aqua.internal:8080"},
+    "onprem": ({"auth_method": "user_pass", "csp_endpoint": "https://aqua.internal:8443"},
                {"username": "administrator", "password": PASSWORD}),
 }
 
@@ -194,7 +194,7 @@ def test_profile_saas_user_and_onprem():
     cm = FakeConfigManager(PROFILES)
     assert settings_from_profile("saas-user", env={}, config_manager=cm).credentials.mode == SAAS_USER
     onprem = settings_from_profile("onprem", env={}, config_manager=cm).credentials
-    assert onprem.mode == ONPREM and onprem.console_url == "http://aqua.internal:8080"
+    assert onprem.mode == ONPREM and onprem.console_url == "https://aqua.internal:8443"
 
 
 def test_profile_defaults_to_the_saved_default():

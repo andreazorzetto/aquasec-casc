@@ -14,12 +14,12 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e ".[dev]" pyflakes
-      - run: python -m pyflakes src tests
+      - run: pip install -e ".[dev]"
+      - run: python -m pyflakes src tests scripts
       - run: python -m pytest -q tests/unit
       - name: The examples are valid
         run: |
@@ -29,7 +29,7 @@ jobs:
   image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - run: docker build -t aquasec-casc:ci .
       - name: It runs as built, on a read-only filesystem, with no network
         run: docker run --rm --read-only --network none aquasec-casc:ci --help

@@ -109,7 +109,7 @@ def test_a_grace_period_needs_its_days():
 
 
 @pytest.mark.parametrize("type_,controls,only", [
-    ("image", {"cisBenchmarkLinux": True}, "host"),
+    ("image", {"cisBenchmarkForLinux": True}, "host"),
     ("host", {"superuser": True}, "cf_application and image"),
     ("image", {"excessivePermissions": True}, "function"),
     ("host", {"kubernetesControls": ["Privileged"]}, "kubernetes"),
@@ -117,6 +117,15 @@ def test_a_grace_period_needs_its_days():
 def test_a_control_this_type_does_not_offer_is_refused(type_, controls, only):
     with pytest.raises(SchemaError, match=f"only available on {only}"):
         load(type_=type_, controls=controls)
+
+
+def test_actions_and_exceptions_a_type_does_not_offer_are_refused():
+    with pytest.raises(SchemaError, match="actions.blockResources is only available on kubernetes"):
+        load(actions={"blockResources": True})
+    with pytest.raises(SchemaError, match="exceptions.ignoreNoFix is only available on"):
+        load(type_="kubernetes", exceptions={"ignoreNoFix": True})
+    with pytest.raises(SchemaError, match="controls.malware is only available on"):
+        load(type_="function", controls={"malware": True})
 
 
 def test_orphans_are_found_on_every_type_and_shipped_ones_are_kept():

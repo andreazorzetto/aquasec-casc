@@ -251,8 +251,8 @@ files or not. `--dry-run` shows the plan only; `--yes` skips the question, for
 scripts. Policies Aqua ships cannot be deleted, so `destroy` releases them
 instead.
 
-The Git way works too: remove the files and `apply`. A run that loads no files
-at all deletes nothing unless you add `--allow-empty` -- the last safety net
+The Git way works too: remove the files and `apply`. A run with no files of a kind
+deletes nothing of that kind unless you add `--allow-empty` -- the last safety net
 against a wrong path or an empty mount.
 
 ---

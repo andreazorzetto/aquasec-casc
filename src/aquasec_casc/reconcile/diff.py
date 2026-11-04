@@ -62,6 +62,11 @@ def _is_empty(value: Any) -> bool:
     return value is None or value == [] or value == {}
 
 
+def is_off_value(value: Any) -> bool:
+    """False, an empty list, 0 or "": what a control holds when it is off."""
+    return value is False or value == "" or _is_empty(value) or (type(value) is int and value == 0)
+
+
 def equivalent(a: Any, b: Any) -> bool:
     """Whether two API values mean the same thing.
 

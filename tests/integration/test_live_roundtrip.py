@@ -116,7 +116,7 @@ def test_export_adopt_noop_drift_revert_delete(client, throwaway, tmp_path):
     for f in repo.glob("runtime-policy-*.yaml"):
         f.unlink()
     code, out = cli(client, "apply", "-f", str(repo), "--detailed-exitcode")
-    assert code == 2 and "no resources were loaded" in out, out
+    assert code == 2 and "no resources of this kind were loaded" in out, out
     assert server() is not None
 
     # ...and deleted when that is explicitly intended.

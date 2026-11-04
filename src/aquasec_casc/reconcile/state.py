@@ -20,7 +20,8 @@ from typing import Protocol
 # Fields that carry a credential. Enforcer group objects hold their registration
 # token in ``token`` and again inside ``install_command`` / ``command``.
 FORBIDDEN_KEYS = ("token", "install_command", "command", "pas_deployment_link",
-                  "password", "secret")
+                  "password", "secret", "user_password", "api_key", "api_secret", "secret_key",
+                  "access_key")
 
 
 class StateError(Exception):

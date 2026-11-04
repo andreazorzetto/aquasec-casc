@@ -27,6 +27,29 @@ YAML_SUFFIXES = (".yaml", ".yml")
 CONFIG_FILENAMES = ("aquasec-casc.yaml", "aquasec-casc.yml")
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a key written twice in one mapping.
+
+    Plain YAML keeps the last and says nothing. In a file where what is left out is
+    off, a second ``controls:`` would silently switch off everything in the first.
+    """
+
+
+def _no_duplicate_keys(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict:
+    loader.flatten_mapping(node)
+    seen = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"the key {key!r} is written twice", key_node.start_mark)
+        seen.add(key)
+    return loader.construct_mapping(node, deep=True)
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
+
+
 @dataclass
 class LoadResult:
     """Everything a single load produced: resources, and any warnings."""
@@ -230,7 +253,7 @@ def load_file(path: Path | str) -> LoadResult:
         raise SchemaError(str(path), [SchemaProblem("", f"cannot read file: {exc}")])
 
     try:
-        documents = list(yaml.safe_load_all(text))
+        documents = list(yaml.load_all(text, Loader=_StrictLoader))
     except yaml.YAMLError as exc:
         raise SchemaError(str(path), [SchemaProblem("", f"invalid YAML: {exc}")])
 
@@ -260,7 +283,7 @@ def load_dir(path: Path | str) -> LoadResult:
     result = LoadResult()
     group = SchemaErrorGroup()
 
-    for file in sorted(p for p in path.rglob("*") if p.suffix in YAML_SUFFIXES):
+    for file in sorted(p for p in path.rglob("*") if p.suffix.lower() in YAML_SUFFIXES):
         if file.parent == path and file.name in CONFIG_FILENAMES:
             continue
         # A mounted ConfigMap holds every file twice: as a link at the top, and

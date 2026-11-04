@@ -9,7 +9,6 @@ Pure: returns documents, writes nothing. The CLI decides where they go.
 
 from __future__ import annotations
 
-import fnmatch
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -98,6 +97,12 @@ def _drop_off_under(spec: dict, kind: KindDef, prefix: str) -> dict:
     under = prefix + "."
     kept = {k[len(under):].split(".")[0] for k in kind.kept_when_unset if k.startswith(under)}
     section = holder[leaf]
+    # A control with settings and no switch to say so reads as on when loaded, so
+    # one whose switch this Aqua does not return is left out, as off.
+    switches = {m.canonical[len(under):].split(".")[0] for m in kind.field_map.mappings
+                if m.canonical.startswith(under) and m.canonical.endswith(".enabled")}
+    section = {k: v for k, v in section.items()
+               if not (k in switches and isinstance(v, dict) and "enabled" not in v)}
     trimmed = _only_what_is_on({k: v for k, v in section.items() if k not in kept})
     # A control that is on with no settings reads best as one line.
     trimmed = {k: True if v == {"enabled": True} else v for k, v in trimmed.items()}
@@ -107,6 +112,9 @@ def _drop_off_under(spec: dict, kind: KindDef, prefix: str) -> dict:
     else:
         del holder[leaf]
     return spec
+
+
+NOT_THE_SCHEMA = "does not fit the schema"
 
 
 @dataclass
@@ -127,6 +135,9 @@ class Skipped:
 class ExportResult:
     exported: list[Exported] = field(default_factory=list)
     skipped: list[Skipped] = field(default_factory=list)
+
+    def skipped_for_schema(self) -> list[Skipped]:
+        return [s for s in self.skipped if s.reason.startswith(NOT_THE_SCHEMA)]
 
 
 def export_kind(
@@ -155,7 +166,7 @@ def export_kind(
         key = kind.key_of(summary)
         if scope is not None and scope not in (summary.get("application_scopes") or []):
             continue
-        if names and not any(fnmatch.fnmatchcase(n, pattern) for n in (key, name) for pattern in names):
+        if names and not kind.matches(key, names):
             continue
 
         full = client.get(kind, key)
@@ -211,7 +222,7 @@ def export_kind(
         except ValidationError as exc:
             first = exc.errors()[0]
             where = ".".join(str(p) for p in first["loc"])
-            result.skipped.append(Skipped(key, f"does not fit the schema ({where}: {first['msg']})"))
+            result.skipped.append(Skipped(key, f"{NOT_THE_SCHEMA} ({where}: {first['msg']})"))
             continue
 
         result.exported.append(Exported(

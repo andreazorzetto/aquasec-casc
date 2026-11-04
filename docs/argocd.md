@@ -34,11 +34,17 @@ Create it by hand or with your secrets tooling. It does not go in Git.
 ```sh
 kubectl create namespace aqua-casc
 
+read -rs AQUA_PASSWORD                  # not on the command line, nor in shell history
+
 kubectl -n aqua-casc create secret generic aqua-casc-credentials \
   --from-literal=AQUA_URL=https://aqua.internal.example \
   --from-literal=AQUA_USER=aquasec-casc \
-  --from-literal=AQUA_PASSWORD='...'
+  --from-file=AQUA_PASSWORD=<(printf %s "$AQUA_PASSWORD")
+unset AQUA_PASSWORD
 ```
+
+The console's address must be `https://`: the tool refuses to send credentials over
+plain HTTP, and does not follow redirects.
 
 If the console's certificate comes from an internal CA, add that CA too. Verifying
 it is the default, and this is how it stays on:
@@ -92,7 +98,8 @@ generatorOptions:
 
 **A file left out of this list is deleted from Aqua on the next sync**, since no
 file then describes the object. That is what Git-driven deletion means, so review
-this list like the policies themselves. A ConfigMap also has a size limit of about
+this list like the policies themselves. (The exceptions are safety nets: nothing is
+deleted of a kind with no file at all, nor while another file of that kind fails.) A ConfigMap also has a size limit of about
 1 MB, which holds a lot of policies, but not without limit.
 
 `job.yaml`:
@@ -153,7 +160,27 @@ With an internal CA, add `AQUA_CA_BUNDLE` and mount the CA:
 ```
 
 The tool needs no ServiceAccount permissions and writes nothing to the cluster:
-there is no state to keep.
+there is no state to keep. To hold it to the Aqua console and nothing else:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aqua-casc
+  namespace: aqua-casc
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 10.0.0.10/32 }   # the Aqua console
+      ports:
+        - { protocol: TCP, port: 443 }
+    - to:                                   # DNS, if the console has a name
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+```
 
 ## 3. Create the Argo CD Application
 

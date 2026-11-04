@@ -27,7 +27,8 @@ def setup(name: str | None = None) -> bool:
     from aquasec.config import interactive_setup
 
     from .settings import _timeout_from_env, _tls_from_env
-    set_request_defaults(verify=_tls_from_env(os.environ), timeout=_timeout_from_env(os.environ))
+    set_request_defaults(verify=_tls_from_env(os.environ), timeout=_timeout_from_env(os.environ),
+                         allow_redirects=False)
     return bool(interactive_setup(name))
 
 

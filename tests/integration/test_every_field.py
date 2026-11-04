@@ -152,3 +152,19 @@ def test_approved_base_image(client):
         pytest.skip("no image is registered on this tenant")
     value = {"images": [{"registry": images[0]["registry"], "image": images[0]["name"]}]}
     assert exercise(client, "AssurancePolicy", "image", "controls.approvedBaseImage", value) == []
+
+
+@pytest.mark.parametrize("type_,engines,wanted_type", [("image", ("rego", "ab", "sh"), "Image"),
+                                                       ("host", ("yaml",), "Host")])
+def test_custom_compliance_checks(client, type_, engines, wanted_type):
+    """Scripts are the tenant's, so this takes one it has."""
+    from aquasec.common import _request_with_retry
+
+    res = _request_with_retry("GET", f"{client.server}/api/v2/assurance_policy/{type_}/user_scripts",
+                              client.token, timeout=client.timeout)
+    scripts = sorted((s for s in res.json() or [] if s.get("engine") in engines and s.get("type") == wanted_type),
+                     key=lambda s: engines.index(s["engine"]))
+    if not scripts:
+        pytest.skip(f"no {wanted_type} script on this tenant")
+    value = {"scripts": [{"name": scripts[0]["name"]}]}
+    assert exercise(client, "AssurancePolicy", type_, "controls.customComplianceChecks", value) == []

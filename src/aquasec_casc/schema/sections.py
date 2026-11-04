@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import Field, model_validator
 
 from .base import StrictModel
@@ -22,6 +24,9 @@ class Section(StrictModel):
 
     enabled: bool = False
 
+    needs: ClassVar[tuple[str, ...]] = ()
+    """Settings the control means nothing without: ``true`` alone would blank them."""
+
     @model_validator(mode="before")
     @classmethod
     def _settings_turn_the_section_on(cls, data):
@@ -30,6 +35,13 @@ class Section(StrictModel):
         if isinstance(data, dict) and data and "enabled" not in data:
             return {**data, "enabled": True}
         return data
+
+    @model_validator(mode="after")
+    def _what_it_needs(self):
+        missing = [n for n in self.needs if getattr(self, n) is None]
+        if self.enabled and missing:
+            raise ValueError(f"needs {' and '.join(repr(m) for m in missing)}")
+        return self
 
 
 class Heading(StrictModel):
@@ -61,6 +73,10 @@ class AdditionalScopeCriteria(StrictModel):
     """How the variables combine, e.g. ``v1 || v2``; ``v1`` is the first."""
 
     variables: list[ScopeVariable] = Field(min_length=1)
+
+
+#: Aqua stores a variable's optional name as "" or not at all.
+SCOPE_VARIABLE = {"attribute": "attribute", "value": "value", "name": "name"}
 
 
 def control(name: str, switch: str, settings: dict[str, str],

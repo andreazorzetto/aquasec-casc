@@ -7,8 +7,9 @@ generator all read this table.
 
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass, field
-from typing import Any, Type
+from typing import Any, Iterable, Type
 
 from .base import Resource
 from .fieldmap import FieldMap
@@ -50,13 +51,13 @@ class KindDef:
     """The value of ``builtin_field`` that marks a system object."""
 
     builtin_names: frozenset[str] = frozenset()
-    """Names of system objects, for kinds with no reliable flag: an object with
-    one of these names is treated as a system object whatever its fields say.
-    The safe direction: the worst case is an object the tool will not delete."""
+    """Keys of system objects, for kinds with no reliable flag: an object with one
+    of these keys is treated as a system object whatever its fields say. The safe
+    direction: the worst case is an object the tool will not delete."""
 
     predefined: frozenset[str] = frozenset()
-    """Names of system objects with fields that cannot change -- listed by name
-    because no API field identifies them. They must also be system objects."""
+    """Keys of system objects with fields that cannot change -- listed because no
+    API field identifies them."""
 
     only_on: dict[str, frozenset[str]] = field(default_factory=dict)
     """API paths that exist only on particular system objects, by name. Setting
@@ -98,6 +99,11 @@ class KindDef:
         """The bare Aqua name in a key."""
         return key.split("/", 1)[1] if self.qualifier_field else key
 
+    def matches(self, key: str, patterns: Iterable[str]) -> bool:
+        """Whether a ``--name`` glob selects this key. A glob matches the name, or
+        with a "/" in it the whole key: ``h*`` is not every host policy."""
+        return any(fnmatch.fnmatchcase(key if "/" in p else self.name_of(key), p) for p in patterns)
+
 
 #: What Aqua ships. The flag alone will not do: is_ootb_policy is false on every
 #: one of these in a 2022.4 export, so the names are what is certain.
@@ -117,8 +123,11 @@ SHIPPED_RUNTIME_POLICIES = (
 #: of these policies, with exception of their name and scope"; no flag marks them,
 #: and an API edit may rewrite the author.
 SHIPPED_ASSURANCE_POLICIES = (
-    "Default", "DTA", "Malware-Default-Policy", "Sensitive-Data-Default-Policy",
-    "Non-workload-resources",
+    "image/Default", "image/DTA", "image/Malware-Default-Policy",
+    "image/Sensitive-Data-Default-Policy",
+    "host/Default", "host/Malware-Default-Policy", "host/Sensitive-Data-Default-Policy",
+    "function/Default", "cf_application/Default",
+    "kubernetes/Default", "kubernetes/Non-workload-resources",
 )
 
 REGISTRY: dict[str, KindDef] = {

@@ -16,7 +16,8 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import API_VERSION, ManagedSpec, Metadata, Resource, StrictModel
 from .fieldmap import FieldMap, FieldMapping
-from .sections import AdditionalScopeCriteria, Heading, ScopeVariable, Section, control as _control
+from .sections import (SCOPE_VARIABLE, AdditionalScopeCriteria, Heading, ScopeVariable, Section,
+                       control as _control)
 
 KIND = "RuntimePolicy"
 
@@ -54,6 +55,14 @@ class BlockReverseShell(AllowedProcesses):
 
 
 class DriftPrevention(AllowedProcesses):
+    """Drift Prevention: executables not in the original image do not run. On a
+    function policy the console calls this Block Malicious Executables.
+
+    The console's switch writes two API fields, ``enabled`` and
+    ``exec_lockdown``; they are equal on every console-made policy. The API's
+    ``image_lockdown`` is not in the console and not offered.
+    """
+
     renamed: ClassVar[dict[str, str]] = {
         "exceptions": _renamed("allowedProcesses"),
         "execLockdownScripts": _renamed("includeScriptFiles"),
@@ -61,13 +70,6 @@ class DriftPrevention(AllowedProcesses):
         "execLockdown": "not needed: switching driftPrevention on writes it, as the console does",
         "imageLockdown": _NOT_IN_CONSOLE,
     }
-
-    """Drift Prevention: executables not in the original image do not run.
-
-    The console's switch writes two API fields, ``enabled`` and
-    ``exec_lockdown``; they are equal on every console-made policy. The API's
-    ``image_lockdown`` is not in the console and not offered.
-    """
 
     includeScriptFiles: bool | None = None
     applyToChildProcesses: bool | None = None
@@ -99,7 +101,7 @@ class LimitContainerPrivileges(Section):
     rootUser: bool | None = None
     """Configured with 'root' user."""
     lowPortBinding: bool | None = None
-    """Port binding lower than 1024 (Windows only)."""
+    """Port binding lower than 1024. The only privilege that also applies to Windows."""
     addCapabilities: bool | None = None
     """Adding capabilities with --cap-add."""
     ownerUserContext: bool | None = None
@@ -119,6 +121,8 @@ class CapabilitiesBlock(Section):
 
 
 class ExecutablesBlocked(Section):
+    """Executables Blocked; Executables Blacklist on a function policy."""
+
     executables: list[str] | None = None
 
 
@@ -152,6 +156,8 @@ class TimeUnit(str, Enum):
 
 class BlockOutdatedImages(Section):
     """Block Outdated Images: images older than the threshold do not run."""
+
+    needs = ("olderThan", "unit")
 
     olderThan: int | None = None
     unit: TimeUnit | None = None
@@ -528,8 +534,8 @@ NOT_OFFERED: dict[str, str] = {
     "file_integrity_monitoring.monitored_files_read": _DROPPED,
     "registry_access_monitoring.monitored_registry_read": _NOT_CONSOLE,
     "malware_scan_options.include_directories": "Aqua sets its own list and restores it on every save",
-    "readonly_files": "Read-Only Files: deprecated by Aqua; refused when on for a container policy",
-    "tripwire": "Honeypot (functions): holds an AWS secret key, and the tool never manages credentials",
+    "readonly_files": "Read-Only Directories and Files: deprecated by Aqua, absent from the console, and refused when on for a container policy",
+    "tripwire": "Honeypot (functions): does nothing without an AWS secret key, and the tool never manages credentials. Set it in the console",
 }
 
 
@@ -627,7 +633,7 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.applicationScopes", "application_scopes"),
         FieldMapping("spec.excludeApplicationScopes", "exclude_application_scopes"),
         FieldMapping("spec.additionalScopeCriteria.expression", "scope.expression"),
-        FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables"),
+        FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables", items=SCOPE_VARIABLE),
 
         # --- images and workloads -------------------------------------------------
         FieldMapping(
@@ -777,6 +783,7 @@ FIELD_MAP = FieldMap(
         # --- default policies only (see KindDef.only_on) --------------------------
         FieldMapping("spec.controls.bypassScope.enabled", "bypass_scope.enabled"),
         FieldMapping("spec.controls.bypassScope.expression", "bypass_scope.scope.expression"),
-        FieldMapping("spec.controls.bypassScope.variables", "bypass_scope.scope.variables"),
+        FieldMapping("spec.controls.bypassScope.variables", "bypass_scope.scope.variables",
+                     items=SCOPE_VARIABLE),
     ],
 )

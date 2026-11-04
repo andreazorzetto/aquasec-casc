@@ -4,10 +4,16 @@
 #   merge to main: apply.
 #
 # Secrets (Settings > Secrets and variables > Actions):
-#   AQUA_URL, AQUA_USER, AQUA_PASSWORD      self-hosted Aqua
-#   or AQUA_API_KEY, AQUA_API_SECRET, AQUA_API_ENDPOINT, AQUA_ROLE, for SaaS
+#   AQUA_URL, AQUA_USER, AQUA_PASSWORD      self-hosted Aqua: the account that can write
+#   AQUA_READONLY_USER, AQUA_READONLY_PASSWORD   an account that can only read
+#   (for SaaS, AQUA_API_KEY, AQUA_API_SECRET, AQUA_API_ENDPOINT and AQUA_ROLE instead)
 #
 # A self-hosted Aqua that GitHub's runners cannot reach needs a self-hosted runner.
+#
+# Anyone who can open a pull request from a branch of this repository can change this
+# workflow, and with it read these secrets. So give the plan job a read-only Aqua
+# account, and keep the account that can write behind a protected Environment:
+# Settings > Environments > aqua-production, with required reviewers.
 name: Aqua configuration
 on:
   pull_request:
@@ -25,27 +31,41 @@ env:
   CONFIG: aqua               # the folder with aquasec-casc.yaml and the policies
 
 jobs:
-  aqua:
+  validate:
     runs-on: ubuntu-latest
-    env:
-      AQUA_URL: ${{ secrets.AQUA_URL }}
-      AQUA_USER: ${{ secrets.AQUA_USER }}
-      AQUA_PASSWORD: ${{ secrets.AQUA_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Validate
         run: docker run --rm --network none -v "$PWD/$CONFIG:/config:ro" "$IMAGE" validate -f /config
 
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Plan
-        if: github.event_name == 'pull_request'
+        env:
+          AQUA_URL: ${{ secrets.AQUA_URL }}
+          AQUA_USER: ${{ secrets.AQUA_READONLY_USER }}
+          AQUA_PASSWORD: ${{ secrets.AQUA_READONLY_PASSWORD }}
         run: >
           docker run --rm --read-only -v "$PWD/$CONFIG:/config:ro"
           -e AQUA_URL -e AQUA_USER -e AQUA_PASSWORD
           "$IMAGE" plan -f /config
 
+  apply:
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: aqua-production
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Apply
-        if: github.event_name == 'push'
+        env:
+          AQUA_URL: ${{ secrets.AQUA_URL }}
+          AQUA_USER: ${{ secrets.AQUA_USER }}
+          AQUA_PASSWORD: ${{ secrets.AQUA_PASSWORD }}
         run: >
           docker run --rm --read-only -v "$PWD/$CONFIG:/config:ro"
           -e AQUA_URL -e AQUA_USER -e AQUA_PASSWORD

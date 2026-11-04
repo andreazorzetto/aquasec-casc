@@ -17,7 +17,6 @@ they and the pipeline remain, the next apply recreates everything.
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass, field
 
 from ..schema.base import Resource
@@ -47,7 +46,7 @@ class DestroyOptions:
 
 
 def _selected(kind: KindDef, key: str, names: tuple[str, ...]) -> bool:
-    return not names or any(fnmatch.fnmatchcase(n, p) for n in (key, kind.name_of(key)) for p in names)
+    return not names or kind.matches(key, names)
 
 
 def _targets(client: AquaClient, kind: KindDef, options: DestroyOptions,

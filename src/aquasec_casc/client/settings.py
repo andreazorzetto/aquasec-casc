@@ -194,11 +194,23 @@ def credentials_from_env(env: Mapping[str, str]) -> Credentials:
     raise ConfigError("No Aqua credentials found.\n\n" + _HELP)
 
 
+def _https_only(credentials: Credentials, verify: Verify) -> Credentials:
+    """A password over plain HTTP is readable by anything in between. It takes the
+    same deliberate switch as skipping certificate checks."""
+    for url in (credentials.console_url, credentials.api_endpoint):
+        if url and not url.lower().startswith("https://") and verify is not False:
+            raise ConfigError(
+                f"{url} is not HTTPS, and credentials would cross the network in the clear. "
+                "Use its https:// address. (AQUA_TLS_INSECURE=true allows it: not recommended.)")
+    return credentials
+
+
 def settings_from_env(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
+    verify = _tls_from_env(env)
     return Settings(
-        credentials=credentials_from_env(env),
-        verify=_tls_from_env(env),
+        credentials=_https_only(credentials_from_env(env), verify),
+        verify=verify,
         timeout=_timeout_from_env(env),
         source="environment",
     )
@@ -247,9 +259,10 @@ def settings_from_profile(name: str | None = None, env: Mapping[str, str] | None
         config_manager = ConfigManager()
     if not name:
         name = config_manager.get_default_profile()
+    verify = _tls_from_env(env)
     return Settings(
-        credentials=credentials_from_profile(name, config_manager),
-        verify=_tls_from_env(env),
+        credentials=_https_only(credentials_from_profile(name, config_manager), verify),
+        verify=verify,
         timeout=_timeout_from_env(env),
         source=f"profile '{name}'",
     )

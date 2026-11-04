@@ -45,6 +45,7 @@ All under `spec`.
 | `controls.blockFilelessExec` | object | | A blocking control with its Allowed Processes: Block Container Exec, Block Fileless Exec. |
 | `controls.blockFilelessExec.enabled` | true/false | `block_fileless_exec` | The control's switch. |
 | `controls.blockFilelessExec.allowedProcesses` | list of text | `block_fileless_exec_proc_white_list` |  |
+| `controls.driftPrevention` | object | | Drift Prevention: executables not in the original image do not run. On a function policy the console calls this Block Malicious Executables. The console's switch writes two API fields, ``enabled`` and ``exec_lockdown``; they are equal on every console-made policy. The API's ``image_lockdown`` is not in the console and not offered. |
 | `controls.driftPrevention.enabled` | true/false | `drift_prevention.enabled` | The control's switch. |
 | `controls.driftPrevention.allowedProcesses` | list of text | `drift_prevention.exec_lockdown_white_list` |  |
 | `controls.driftPrevention.includeScriptFiles` | true/false | `drift_prevention.exec_lockdown_scripts` |  |
@@ -52,6 +53,7 @@ All under `spec`.
 | `controls.executablesAllowed` | object | | Executables Allowed: everything else is prevented from running. |
 | `controls.executablesAllowed.enabled` | true/false | `allowed_executables.enabled` | The control's switch. |
 | `controls.executablesAllowed.executables` | list of text | `allowed_executables.allow_executables` |  |
+| `controls.executablesBlocked` | object | | Executables Blocked; Executables Blacklist on a function policy. |
 | `controls.executablesBlocked.enabled` | true/false | `executable_blacklist.enabled` | The control's switch. |
 | `controls.executablesBlocked.executables` | list of text | `executable_blacklist.executables` |  |
 | `controls.limitNewPrivileges` | true/false | `no_new_privileges` |  |
@@ -64,7 +66,7 @@ All under `spec`.
 | `controls.limitContainerPrivileges.hostUts` | true/false | `limit_container_privileges.utsmode` | Use the host UTS namespace. |
 | `controls.limitContainerPrivileges.hostUserNamespace` | true/false | `limit_container_privileges.usermode` | Use the host user namespace. |
 | `controls.limitContainerPrivileges.rootUser` | true/false | `limit_container_privileges.prevent_root_user` | Configured with 'root' user. |
-| `controls.limitContainerPrivileges.lowPortBinding` | true/false | `limit_container_privileges.prevent_low_port_binding` | Port binding lower than 1024 (Windows only). |
+| `controls.limitContainerPrivileges.lowPortBinding` | true/false | `limit_container_privileges.prevent_low_port_binding` | Port binding lower than 1024. The only privilege that also applies to Windows. |
 | `controls.limitContainerPrivileges.addCapabilities` | true/false | `limit_container_privileges.block_add_capabilities` | Adding capabilities with --cap-add. |
 | `controls.limitContainerPrivileges.ownerUserContext` | true/false | `limit_container_privileges.use_host_user` | Run in owner's user context (requires restart). In Aqua's docs; not shown by every console version. |
 | `controls.capabilitiesBlock` | object | | Capabilities Block: Linux capabilities containers may not use, named as in the console's list (``NET_RAW``, ``SYS_ADMIN``; ``ALL``). The console offers it only in enforce mode; the API accepts it in audit mode too (seen live), so the tool stores what the file says, as for Secure AI. |
@@ -182,67 +184,81 @@ All under `spec`.
 | `additionalScopeCriteria.variables` | list of {attribute, value, name} | `scope.variables` |  |
 | `actions` | object | | The console's Actions. Left out means not done. |
 | `actions.createAuditMessage` | true/false | `audit_on_failure` | Create an audit message when the policy fails. |
-| `actions.failCicd` | true/false | `fail_cicd` | Fail the Aqua step in CI/CD. |
+| `actions.failCicd` | true/false | `fail_cicd` | Fail the Aqua step in CI/CD. Only on cf_application, function, image. |
 | `actions.markNonCompliant` | true/false | `block_failed` | Mark failed images (hosts, resources) as non-compliant. On a function policy: Block function if non-compliant. |
-| `actions.blockResources` | true/false | `policy_settings.enforce` | Block resources if policy fails (Kubernetes). |
-| `actions.displayWarningMessage` | object | | Display warning message in Linux shell (Kubernetes). |
+| `actions.blockResources` | true/false | `policy_settings.enforce` | Block resources if policy fails (Kubernetes). Only on kubernetes. |
+| `actions.displayWarningMessage` | object | | Display warning message in Linux shell (Kubernetes). Only on kubernetes. |
 | `actions.displayWarningMessage.enabled` | true/false | `policy_settings.warn` | The control's switch. |
 | `actions.displayWarningMessage.message` | text | `policy_settings.warning_message` |  |
 | `exceptions` | object | | The console's Exceptions. Left out means nothing is ignored. |
-| `exceptions.ignoreNoFix` | true/false | `control_exclude_no_fix` | Ignore vulnerabilities that have no available fix. |
-| `exceptions.ignoreRecentlyPublished` | object | | Ignore vulnerabilities published in the last [days] days. |
+| `exceptions.ignoreNoFix` | true/false | `control_exclude_no_fix` | Ignore vulnerabilities that have no available fix. Only on cf_application, function, host, image. |
+| `exceptions.ignoreRecentlyPublished` | object | | Ignore vulnerabilities published in the last [days] days. Only on cf_application, function, host, image. |
 | `exceptions.ignoreRecentlyPublished.enabled` | true/false | `ignore_recently_published_vln` | The control's switch. |
-| `exceptions.ignoreRecentlyPublished.days` | number | `ignore_recently_published_vln_period` |  |
-| `exceptions.ignoreRecentlyPublishedRunning` | object | | The same for running workloads. In the API, not the docs; stored as written. |
+| `exceptions.ignoreRecentlyPublished.days` | number | `ignore_recently_published_vln_period` | How long the grace period is (1-999). |
+| `exceptions.ignoreRecentlyPublishedRunning` | object | | The same for running workloads. In the API, not the docs; stored as written. Only on cf_application, function, host, image. |
 | `exceptions.ignoreRecentlyPublishedRunning.enabled` | true/false | `ignore_recently_published_running_vln` | The control's switch. |
-| `exceptions.ignoreRecentlyPublishedRunning.days` | number | `ignore_recently_published_running_vln_period` |  |
-| `exceptions.ignoreRecentlyFixed` | object | | Ignore vulnerabilities fixed in the last [days] days (Trivy Premium). |
+| `exceptions.ignoreRecentlyPublishedRunning.days` | number | `ignore_recently_published_running_vln_period` | How long the grace period is (1-999). |
+| `exceptions.ignoreRecentlyFixed` | object | | Ignore vulnerabilities fixed in the last [days] days (Trivy Premium). Only on cf_application, image. |
 | `exceptions.ignoreRecentlyFixed.enabled` | true/false | `ignore_recently_published_fix_vln` | The control's switch. |
-| `exceptions.ignoreRecentlyFixed.days` | number | `ignore_recently_published_fix_vln_period` |  |
+| `exceptions.ignoreRecentlyFixed.days` | number | `ignore_recently_published_fix_vln_period` | How long the grace period is (1-999). |
+| `exceptions.ignoreSpecificVulnerabilities` | object | | Only on cf_application, function, host, image. |
 | `exceptions.ignoreSpecificVulnerabilities.enabled` | true/false | `cves_white_list_enabled` | The control's switch. |
 | `exceptions.ignoreSpecificVulnerabilities.cves` | list of text | `cves_white_list` |  |
-| `exceptions.ignorePaths` | object | | Ignore vulnerabilities, malware and sensitive data found in these paths (gitignore syntax). |
+| `exceptions.ignorePaths` | object | | Ignore vulnerabilities, malware and sensitive data found in these paths (gitignore syntax). Only on cf_application, function, host, image. |
 | `exceptions.ignorePaths.enabled` | true/false | `ignore_risk_resources_enabled` | The control's switch. |
 | `exceptions.ignorePaths.paths` | list of text | `ignored_risk_resources` |  |
-| `exceptions.ignoreBaseImage` | true/false | `ignore_base_image_vln` | Ignore vulnerabilities found in the base image. |
-| `controls` | object | | The console's Controls. A control left out is off. Which type offers which is in ``ONLY_ON``; the rest are on the image, host and function policies, as the console lists them. |
+| `exceptions.ignoreBaseImage` | true/false | `ignore_base_image_vln` | Ignore vulnerabilities found in the base image. Only on cf_application, image. |
+| `controls` | object | | The console's Controls. A control left out is off. Which type offers which is in ``ONLY_ON``. |
+| `controls.vulnerabilitySeverity` | object | | Only on cf_application, function, host, image. |
 | `controls.vulnerabilitySeverity.enabled` | true/false | `cvss_severity_enabled` | The control's switch. |
 | `controls.vulnerabilitySeverity.severity` | `low` \| `medium` \| `high` \| `critical` | `cvss_severity` | Fails at this severity or higher. |
 | `controls.vulnerabilitySeverity.useCustomSeverity` | true/false | `custom_severity_enabled` |  |
+| `controls.vulnerabilityScore` | object | | Only on cf_application, function, host, image. |
 | `controls.vulnerabilityScore.enabled` | true/false | `maximum_score_enabled` | The control's switch. |
-| `controls.vulnerabilityScore.range` | list of number | `vulnerability_score_range` | ``[from, to]``: fails on vulnerabilities whose score is in the range. |
+| `controls.vulnerabilityScore.range` | list of number | `vulnerability_score_range` | ``[from, to]``: fails on vulnerabilities whose score is in the range. A threshold is ``[7, 10]``. |
+| `controls.vulnerabilityScoreAndSeverity` | object | | Only on cf_application, image. |
 | `controls.vulnerabilityScoreAndSeverity.enabled` | true/false | `aggregated_vulnerability.enabled` | The control's switch. |
 | `controls.vulnerabilityScoreAndSeverity.range` | list of number | `aggregated_vulnerability.score_range` |  |
 | `controls.vulnerabilityScoreAndSeverity.severity` | `low` \| `medium` \| `high` \| `critical` | `aggregated_vulnerability.severity` |  |
 | `controls.vulnerabilityScoreAndSeverity.useCustomSeverity` | true/false | `aggregated_vulnerability.custom_severity_enabled` |  |
+| `controls.vulnerabilityExploitability` | object | | Only on cf_application, function, host, image. |
 | `controls.vulnerabilityExploitability.enabled` | true/false | `vulnerability_exploitability` | The control's switch. |
 | `controls.vulnerabilityExploitability.exploitTypes` | list of `CISA` \| `dos` \| `local` \| `remote` \| `webapps` | `disallow_exploit_types` |  |
+| `controls.cvesBlocked` | object | | Only on cf_application, function, host, image. |
 | `controls.cvesBlocked.enabled` | true/false | `cves_black_list_enabled` | The control's switch. |
 | `controls.cvesBlocked.cves` | list of text | `cves_black_list` |  |
-| `controls.malware` | object | | Malware. The settings are the host policy's. |
+| `controls.malware` | object | | Malware. The settings are the host policy's. Only on cf_application, host, image. |
 | `controls.malware.enabled` | true/false | `disallow_malware` | The control's switch. |
-| `controls.malware.scanNfsMounts` | true/false | `scan_nfs_mounts` | Enable NFS share scan. |
-| `controls.malware.scanWindowsRegistry` | true/false | `scan_windows_registry` | Scan Windows registry hives. |
-| `controls.malware.inMemoryScan` | true/false | `scan_process_memory` | Enable In-memory scan. |
-| `controls.malware.scanArchives` | true/false | `scan_malware_in_archives` |  |
+| `controls.malware.enableNfsShareScan` | true/false | `scan_nfs_mounts` |  |
+| `controls.malware.scanWindowsRegistryHives` | true/false | `scan_windows_registry` |  |
+| `controls.malware.enableInMemoryScan` | true/false | `scan_process_memory` |  |
+| `controls.malware.scanArchives` | true/false | `scan_malware_in_archives` | ``scan_malware_in_archives``. In the API; no label in Aqua's docs. |
 | `controls.malware.monitoredPaths` | list of text | `monitored_malware_paths` |  |
 | `controls.malware.excludedPaths` | list of text | `exceptional_monitored_malware_paths` |  |
 | `controls.malware.action` | text | `malware_action` | Action for Malware Files: ``alert`` or ``delete``. |
 | `controls.malware.collectForensicFiles` | true/false | `file_forensic_collection` |  |
+| `controls.sensitiveData` | object | | Only on cf_application, function, host, image. |
 | `controls.sensitiveData.enabled` | true/false | `scan_sensitive_data` | The control's switch. |
 | `controls.sensitiveData.excludedPaths` | list of text | `ignored_sensitive_resources` | Directories and file names ignored when scanning for sensitive data. |
+| `controls.packagesBlocked` | object | | Only on cf_application, host, image. |
 | `controls.packagesBlocked.enabled` | true/false | `packages_black_list_enabled` | The control's switch. |
 | `controls.packagesBlocked.packages` | list of {name, version, versionRange} | `packages_black_list` |  |
+| `controls.packagesRequired` | object | | Only on cf_application, host, image. |
 | `controls.packagesRequired.enabled` | true/false | `packages_white_list_enabled` | The control's switch. |
 | `controls.packagesRequired.packages` | list of {name, version, versionRange} | `packages_white_list` |  |
+| `controls.ossLicensesAllowed` | object | | Only on cf_application, host, image. |
 | `controls.ossLicensesAllowed.enabled` | true/false | `whitelisted_licenses_enabled` | The control's switch. |
 | `controls.ossLicensesAllowed.licenses` | list of text | `whitelisted_licenses` |  |
+| `controls.ossLicensesBlocked` | object | | Only on cf_application, host, image. |
 | `controls.ossLicensesBlocked.enabled` | true/false | `blacklisted_licenses_enabled` | The control's switch. |
 | `controls.ossLicensesBlocked.licenses` | list of text | `blacklisted_licenses` |  |
+| `controls.customComplianceChecks` | object | | Only on cf_application, host, image. |
+| `controls.customComplianceChecks.enabled` | true/false | `custom_checks_enabled` | The control's switch. |
+| `controls.customComplianceChecks.scripts` | list of {name} | `custom_checks` |  |
 | `controls.approvedBaseImage` | object | | Only on cf_application, image. |
 | `controls.approvedBaseImage.enabled` | true/false | `trusted_base_images_enabled` | The control's switch. |
 | `controls.approvedBaseImage.images` | list of {registry, image} | `trusted_base_images` |  |
-| `controls.dynamicThreatAnalysis` | object | | Only on cf_application, image. |
+| `controls.dynamicThreatAnalysis` | object | | Only on image. |
 | `controls.dynamicThreatAnalysis.enabled` | true/false | `dta_enabled` | The control's switch. |
 | `controls.dynamicThreatAnalysis.severity` | `low` \| `medium` \| `high` \| `critical` | `dta_severity` | Fails on issues of this severity or higher. |
 | `controls.labelsForbidden` | object | | Only on cf_application, image. |
@@ -252,13 +268,13 @@ All under `spec`.
 | `controls.labelsRequired.enabled` | true/false | `required_labels_enabled` | The control's switch. |
 | `controls.labelsRequired.labels` | list of {key, value} | `required_labels` |  |
 | `controls.microEnforcer` | true/false | `force_microenforcer` | Only on cf_application, image. |
-| `controls.osPackageManager` | true/false | `partial_results_image_fail` | Only on cf_application, image. |
+| `controls.osPackageManager` | true/false | `partial_results_image_fail` | OS Package Manager, as ``partial_results_image_fail``: stored as written; the pairing of the label with that field is inferred. Only on cf_application, image. |
 | `controls.superuser` | true/false | `only_none_root_users` | Only on cf_application, image. |
-| `controls.cisBenchmarkDocker` | true/false | `docker_cis_enabled` | Only on host. |
-| `controls.cisBenchmarkKubernetes` | true/false | `kube_cis_enabled` | Only on host. |
-| `controls.cisBenchmarkLinux` | true/false | `linux_cis_enabled` | Only on host. |
-| `controls.cisBenchmarkWindows` | true/false | `windows_cis_enabled` | Only on host. |
-| `controls.openshiftHardening` | true/false | `openshift_hardening_enabled` | Aqua says not to use it: use cisBenchmarkKubernetes. Only on host. |
+| `controls.cisBenchmarkForDocker` | true/false | `docker_cis_enabled` | Only on host. |
+| `controls.cisBenchmarkForKubernetes` | true/false | `kube_cis_enabled` | Only on host. |
+| `controls.cisBenchmarkForLinux` | true/false | `linux_cis_enabled` | Only on host. |
+| `controls.cisBenchmarkForWindows` | true/false | `windows_cis_enabled` | Only on host. |
+| `controls.openshiftHardening` | true/false | `openshift_hardening_enabled` | Aqua says not to use it: use cisBenchmarkForKubernetes. Only on host. |
 | `controls.excessivePermissions` | true/false | `enforce_excessive_permissions` | Only on function. |
 | `controls.functionIntegrity` | true/false | `function_integrity_enabled` | Only on function. |
 | `controls.permissionsBlocked` | object | | Function permissions, as ``service:permission``. Only on function. |
@@ -320,14 +336,14 @@ checked against the API spec, the docs and a live tenant.
 | `package_block.exceptional_block_packages_users` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `permission` | server-assigned |
 | `readonly` | server-assigned |
-| `readonly_files` | Read-Only Files: deprecated by Aqua; refused when on for a container policy |
+| `readonly_files` | Read-Only Directories and Files: deprecated by Aqua, absent from the console, and refused when on for a container policy |
 | `registry` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `registry_access_monitoring.monitored_registry_read` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `repo_name` | vShield bookkeeping |
 | `resource_name` | vShield bookkeeping |
 | `resource_type` | vShield bookkeeping |
 | `runtime_mode` | server-assigned |
-| `tripwire` | Honeypot (functions): holds an AWS secret key, and the tool never manages credentials |
+| `tripwire` | Honeypot (functions): does nothing without an AWS secret key, and the tool never manages credentials. Set it in the console |
 | `type` | server-assigned |
 | `updated` | server-assigned |
 | `version` | server-assigned |
@@ -339,21 +355,19 @@ checked against the API spec, the docs and a live tenant.
 | API field | Why |
 |---|---|
 | `FFMap` | server-assigned |
-| `allowed_images` | Images Allowed: decisions on single images, made with the Approve action; Aqua stores [] here |
+| `allowed_images` | Images Allowed: as images |
 | `author` | server-assigned |
 | `auto_scan_configured` | server-assigned |
 | `category` | in the spec; Aqua does not return it |
-| `custom_checks` | Custom Compliance Checks: scripts are objects of their own on the tenant |
-| `custom_checks_enabled` | see custom_checks |
 | `custom_severity` | Aqua stores "" whatever is sent; use custom_severity_enabled |
 | `cvss_severity_exclude_no_fix` | Aqua stores false whatever is sent; use control_exclude_no_fix |
 | `disallow_resource_categories` | in the spec; Aqua does not return it |
 | `domain` | in the spec; Aqua does not return it |
 | `domain_name` | in the spec; Aqua does not return it |
 | `enabled` | in the spec; Aqua does not return it |
-| `exploitability_and_severity` | Vulnerability Exploitability and Severity: free-form and undocumented, and empty on every policy seen, so its field names cannot be checked |
+| `exploitability_and_severity` | Vulnerability Exploitability and Severity: a documented control, but Aqua's spec does not define this field, and Aqua stores anything sent to it, so a wrong name would silently do nothing. Needs one saved from the console to read the names from |
 | `id` | server-assigned |
-| `images` | Images Blocked: decisions on single images, made with the Block action; Aqua stores [] here |
+| `images` | Images Blocked: decisions on single images, on the Default policy only. Aqua stores [] on any other; not written to a Default in testing |
 | `kubernetes_controls` | what kubernetesControls is stored as; the client adapter keeps the three fields in step |
 | `kubernetes_controls_avd_ids` | see kubernetes_controls |
 | `labels` | Aqua stores [] whatever is sent |
@@ -364,9 +378,9 @@ checked against the API spec, the docs and a live tenant.
 | `packages_black_list[]: format, epoch, release, arch, license` | Aqua stores "" whatever is sent (write-tested) |
 | `packages_white_list[]: format, epoch, release, arch, license` | as packages_black_list |
 | `permission` | server-assigned; Aqua stores "Write" whatever is sent |
-| `policy_settings.is_audit_checked` | no console label; audit_on_failure is the action |
+| `policy_settings.is_audit_checked` | no label in Aqua's docs; audit_on_failure is the action on every shipped policy |
 | `read_only` | Aqua refuses it for an API user (HTTP 403) |
 | `registries` | Aqua stores [] whatever is sent |
 | `resource_categories_enabled` | in the spec; Aqua does not return it |
 | `scap_enabled` | see scap_files |
-| `scap_files` | SCAP: scripts are objects of their own on the tenant |
+| `scap_files` | SCAP (self-hosted): needs an OVAL script on the tenant, and none was available to test with |

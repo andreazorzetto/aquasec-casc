@@ -24,7 +24,7 @@ from ..schema.fieldmap import MISSING, get_path, set_path
 from ..schema.registry import REGISTRY, KindDef
 from . import marker
 from .client import AquaClient, ClientError
-from .diff import Plan, equivalent, flatten, three_way_diff
+from .diff import ChangeType, Plan, equivalent, flatten, is_off_value, three_way_diff
 from .result import Outcome, Result, RunSummary
 from .state import NoopStateBackend, StateBackend, StateError, assert_not_ownable
 
@@ -49,6 +49,10 @@ class Options:
     kinds: tuple[KindDef, ...] = field(default_factory=lambda: tuple(REGISTRY.values()))
     """Kinds scanned for orphans. Defaults to every registered kind."""
 
+    scan_orphans: bool = True
+    """Off when the run was given part of the configuration, one file: everything
+    else this instance owns has no file in the run, and that says nothing."""
+
 
 # --------------------------------------------------------------------------- #
 # Built-ins
@@ -60,43 +64,43 @@ def is_shipped(kind: KindDef, obj: dict | None) -> bool:
         return False
     if kind.builtin_field and obj.get(kind.builtin_field) == kind.builtin_value:
         return True
-    return obj.get(kind.name_field) in kind.builtin_names
+    return kind.key_of(obj) in kind.builtin_names
 
 
-def is_predefined(kind: KindDef, obj: dict | None, name: str) -> bool:
+def is_predefined(kind: KindDef, obj: dict | None, key: str) -> bool:
     """Predefined: shipped *and* on the named list, so certain fields are locked.
 
     Both are required. The flag stops a customer's own policy that happens to
     reuse a predefined name from being treated as predefined; the name picks
     the locked ones out of everything Aqua ships.
     """
-    return is_shipped(kind, obj) and name in kind.predefined
+    return is_shipped(kind, obj) and key in kind.predefined
 
 
 def _touches(path: str, prefixes: Iterable[str]) -> bool:
     return any(path == p or path.startswith(p + ".") for p in prefixes)
 
 
-def _withheld(kind: KindDef, obj: dict | None, name: str, path: str) -> str | None:
+def _withheld(kind: KindDef, obj: dict | None, key: str, path: str) -> str | None:
     """Why Aqua would refuse a change to ``path`` on this object, or None.
 
     Two rules, both matching what the console allows:
     * a predefined object's locked fields (the defaults' scope);
     * fields that exist only on particular system objects (Bypass Scope).
     """
-    if is_predefined(kind, obj, name) and _touches(path, kind.predefined_immutable):
+    if is_predefined(kind, obj, key) and _touches(path, kind.predefined_immutable):
         return "cannot change on a default policy"
     for prefix, names in kind.only_on.items():
-        if _touches(path, (prefix,)) and not (is_shipped(kind, obj) and name in names):
+        if _touches(path, (prefix,)) and not (is_shipped(kind, obj) and key in names):
             return "only available on " + " and ".join(repr(n) for n in sorted(names))
     return None
 
 
-def _split(kind: KindDef, obj: dict | None, name: str, plan: Plan) -> tuple[Plan, list[str]]:
+def _split(kind: KindDef, obj: dict | None, key: str, plan: Plan) -> tuple[Plan, list[str]]:
     """The plan minus changes Aqua would refuse, and a note for each one."""
     kept, refused = [], []
     for change in plan.changes:
-        why = _withheld(kind, obj, name, change.path)
+        why = _withheld(kind, obj, key, change.path)
         if why:
             refused.append(f"{change.path}: {change.before!r} -> {change.after!r} ({why}; not sent)")
         else:
@@ -122,7 +126,9 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     kept and the marker appended -- the tool must not wipe a description nobody
     asked it to manage.
     """
-    canonical = resource.model_dump(exclude_unset=True, mode="json")
+    # exclude_none: a key with nothing after it, "limitNewPrivileges:", says the
+    # same as leaving it out.
+    canonical = resource.model_dump(exclude_unset=True, exclude_none=True, mode="json")
     desired = kind.field_map.to_api(canonical)
     for under in kind.off_when_unset if actual else ():
         off = kind.field_map.switched_off(canonical, actual, under, keep=kind.kept_when_unset)
@@ -152,6 +158,8 @@ def _not_kept(kind: KindDef, key: str, plan: Plan, client: AquaClient) -> list[s
     missing = []
     for change in plan.changes:
         have = get_path(stored or {}, change.path)
+        if have is MISSING and is_off_value(change.after):
+            continue                    # off, on a field this version does not have
         if have is MISSING or not equivalent(have, change.after):
             shown = "nothing" if have is MISSING else repr(have)
             missing.append(f"{change.path}: sent {change.after!r}, Aqua holds {shown}")
@@ -186,7 +194,7 @@ def reconcile(
     if actual is None:
         body = dict(desired)
         body[kind.name_field] = name
-        plan, not_allowed = _split(kind, None, name, three_way_diff(desired=body, actual={}))
+        plan, not_allowed = _split(kind, None, key, three_way_diff(desired=body, actual={}))
         body = plan.apply_to({})
         # ReportOnly first: a dry run must say what apply would do, and apply
         # would not create it.
@@ -220,7 +228,10 @@ def reconcile(
         adopting = found is None
 
     # Changes Aqua would refuse are reported, not sent; the rest still applies.
-    plan, not_allowed = _split(kind, actual, name, three_way_diff(desired=desired, actual=actual))
+    plan, not_allowed = _split(kind, actual, key, three_way_diff(desired=desired, actual=actual))
+    # Off on a field this Aqua version does not have is off already.
+    plan.changes = [c for c in plan.changes
+                    if not (c.change is ChangeType.ADD and is_off_value(c.after))]
 
     if plan.is_empty():
         return Result(**common, outcome=Outcome.IN_SYNC, plan=plan, not_allowed=not_allowed)
@@ -256,12 +267,26 @@ def _aqua_id(obj: dict | None) -> int | None:
 # Orphans
 # --------------------------------------------------------------------------- #
 
-def _orphans(resources: list[Resource], client: AquaClient, options: Options) -> list[Result]:
+def _missed(results: list[Result]) -> set[str]:
+    """Kinds where a file's object did not end up in Aqua.
+
+    The orphan might be what that file replaces: a rename is a new object and an
+    orphan. Deleting it would leave neither.
+    """
+    return {r.kind for r in results
+            if r.outcome in (Outcome.FAILED, Outcome.BLOCKED)
+            or (r.outcome is Outcome.DRIFT_DETECTED and r.reason == "Missing")}
+
+
+def _orphans(resources: list[Resource], client: AquaClient, options: Options,
+             missed: set[str]) -> list[Result]:
     """Objects carrying this instance's marker that no file describes.
 
     Deleted by default -- removing a file from Git removes the object, as with
     Argo CD pruning. Never deleted: another instance's objects, unmarked
-    objects, and anything Aqua ships.
+    objects, and anything Aqua ships. Held back: everything of a kind with no file
+    in this run (more likely a wrong path than an instruction to delete them all),
+    and of a kind where something failed.
     """
     results: list[Result] = []
 
@@ -269,7 +294,8 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options) ->
         if not kind.collection:
             continue
 
-        wanted = {kind.key(r) for r in resources if r.kind == kind.kind}
+        loaded = [r for r in resources if r.kind == kind.kind]
+        wanted = {kind.key(r) for r in loaded}
         try:
             objects = client.list(kind)
         except ClientError as exc:
@@ -301,12 +327,19 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options) ->
             elif options.no_delete:
                 results.append(Result(**common, outcome=Outcome.ORPHANED, reason="DeletionDisabled",
                                       message="orphaned, not deleted (--no-delete)"))
-            elif not resources and not options.allow_empty:
+            elif not loaded and not options.allow_empty:
                 results.append(Result(
                     **common, outcome=Outcome.ORPHANED, reason="NoResourcesLoaded",
-                    message=("not deleted: no resources were loaded at all, which is more "
-                             "likely a wrong path or an empty mount than an instruction to "
-                             "delete everything. Pass --allow-empty if it is intended."),
+                    message=("not deleted: no resources of this kind were loaded, which is "
+                             "more likely a wrong path or an empty mount than an instruction "
+                             "to delete them all. Pass --allow-empty if it is intended."),
+                ))
+            elif kind.kind in missed:
+                results.append(Result(
+                    **common, outcome=Outcome.ORPHANED, reason="HeldBack",
+                    message=("not deleted: another file of this kind did not apply, and it "
+                             "may be what replaces this one. Fix that, and it goes on the "
+                             "next run."),
                 ))
             elif options.dry_run:
                 results.append(Result(**common, outcome=Outcome.PLANNED, action="delete",
@@ -353,5 +386,6 @@ def reconcile_all(
             continue
         summary.add(reconcile(resource, kind, client, options, state))
 
-    summary.results.extend(_orphans(resources, client, options))
+    if options.scan_orphans:
+        summary.results.extend(_orphans(resources, client, options, _missed(summary.results)))
     return summary

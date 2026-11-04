@@ -14,7 +14,8 @@ YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
   is off, so a control switched on in the console is drift. Settings the tool does
   not cover stay with the console, and each is [listed](docs/schema-reference.md#not-offered).
 - **Git-driven deletion**, with guardrails: only this instance's objects, never
-  Aqua's own, never on an empty run.
+  Aqua's own, never for a kind with no files in the run, never while a file of that
+  kind has failed, and never when given a single file.
 - **It checks what it wrote.** Aqua silently drops fields it does not know, and
   versions differ, so `apply` reads each object back and fails if a field was not kept.
 
@@ -83,11 +84,16 @@ aquasec-casc setup [NAME]                  # interactive; tests the connection, 
 aquasec-casc profile list | show [NAME] | set-default NAME | delete NAME
 ```
 
+Profiles are for a person's laptop: they are encrypted with a key kept beside them, so
+treat them as you would a password in your home directory. CI and Argo CD use the
+variables, from their own secret stores.
+
 The **instance name** goes in `aquasec-casc.yaml` at the root of the config
 folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
 
-TLS is verified by default. Point `AQUA_CA_BUNDLE` at an internal CA.
-`AQUA_TLS_INSECURE=true` skips verification, and the password goes over the
+TLS is verified by default, and the tool refuses `http://` addresses and redirects, so
+credentials go only where you pointed them. Point `AQUA_CA_BUNDLE` at an internal CA.
+`AQUA_TLS_INSECURE=true` turns these checks off, and the password goes over the
 unverified connection with it, so keep it to throwaway labs.
 
 ## Commands

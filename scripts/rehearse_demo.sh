@@ -7,7 +7,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TAG=$(python3 -c 'import secrets; print(secrets.token_hex(3))')
 INSTANCE="demo-$TAG"
 NAME="demo-devtest-$TAG"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || exit 1
 CASC=${CASC:-aquasec-casc}
 PY=${PY:-python3}
 failures=0
@@ -72,7 +72,7 @@ expect 0 "2 unchanged" "$CASC" plan -f . --detailed-exitcode
 
 step "Clean up"
 rm -f ./*policy*.yaml
-expect 0 "no resources were loaded" "$CASC" apply -f .
+expect 0 "no resources of this kind were loaded" "$CASC" apply -f .
 expect 0 "2 deleted" "$CASC" apply -f . --allow-empty
 
 printf '\n%s failure(s)\n' "$failures"
