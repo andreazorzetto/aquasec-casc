@@ -340,6 +340,14 @@ def cmd_apply(args, out, connect):
     return _reconcile(args, out, connect, dry_run=False)
 
 
+def _keys_in(target: Path) -> set[str]:
+    """What the files in a folder address. A folder that does not load has none."""
+    try:
+        return {REGISTRY[r.kind].key(r) for r in load_dir(target).resources}
+    except (SchemaError, SchemaErrorGroup):
+        return set()
+
+
 def _same_object_or_refuse(path: Path, document: dict) -> None:
     """Two names can make one file name. Overwriting the other's file would leave it
     with none, and an apply would delete it."""
@@ -428,10 +436,11 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
         if result.exported and not result.skipped_for_schema():
             out.line(f"Next: commit, then '{NAME} apply -f {target}'. The first apply only adds "
                      "the ownership marker.", "dim")
-    if result.left_outside:
-        out.notes.line(f"warning: {len(result.left_outside)} object(s) this instance manages are "
-                       f"outside --scope or --name, so have no file here, and an apply of this "
-                       f"folder deletes them: {', '.join(result.left_outside)}", "yellow")
+    with_no_file = [key for key in result.left_outside if key not in _keys_in(target)]
+    if with_no_file:
+        out.notes.line(f"warning: {len(with_no_file)} object(s) this instance manages are "
+                       f"outside --scope or --name and have no file here, so an apply of this "
+                       f"folder deletes them: {', '.join(with_no_file)}", "yellow")
     # No file for an object means deleting it, if this instance owns it, so an
     # export that left one out has not done its job.
     if result.skipped_for_schema():
@@ -633,8 +642,17 @@ def cmd_profile(args, out: Out, connect: Callable) -> int:
 # Wiring
 # --------------------------------------------------------------------------- #
 
+class _Parser(argparse.ArgumentParser):
+    """A usage error exits 1, like any other. argparse's 2 would read as "changes
+    pending" to a script using --detailed-exitcode."""
+
+    def error(self, message: str):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog=NAME, allow_abbrev=False,
         description="Config-as-code for Aqua Security: make Aqua match what Git says.",
     )

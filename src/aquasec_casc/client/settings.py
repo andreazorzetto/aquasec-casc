@@ -146,7 +146,11 @@ or save a profile with 'aquasec-casc setup'. With no AQUA_* credentials set,
 the default profile is used; --profile picks another."""
 
 
-_CREDENTIAL_VARS = ("AQUA_API_KEY", "AQUA_API_SECRET", "AQUA_USER", "AQUA_PASSWORD")
+#: Any of these set means the environment is what is meant, and a partial set is an
+#: error. AQUA_URL alone counts: quietly using a saved profile instead would act on
+#: whatever tenant that profile holds.
+_CREDENTIAL_VARS = ("AQUA_API_KEY", "AQUA_API_SECRET", "AQUA_USER", "AQUA_PASSWORD", "AQUA_URL",
+                    "AQUA_API_ENDPOINT")
 
 
 def env_has_credentials(env: Mapping[str, str]) -> bool:

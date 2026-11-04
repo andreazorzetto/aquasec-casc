@@ -61,62 +61,63 @@ kubectl -n aqua-casc create configmap aqua-casc-ca --from-file=ca.pem=internal-c
 
 ## 2. Lay out the repository
 
+A small Helm chart, with the policies in a folder. Argo CD renders it itself; you do not
+need Helm installed.
+
 ```
 aqua/
-├── kustomization.yaml
-├── job.yaml
-└── policies/
-    ├── aquasec-casc.yaml                instance: platform
-    ├── runtime-policy-devtest.yaml
-    ├── runtime-policy-prod.yaml
-    └── assurance-policy-prod.yaml
+├── Chart.yaml
+├── policies/
+│   ├── aquasec-casc.yaml                instance: platform
+│   ├── runtime-policy-devtest.yaml
+│   ├── runtime-policy-prod.yaml
+│   └── assurance-policy-prod.yaml
+└── templates/
+    ├── configmap.yaml
+    └── job.yaml
 ```
 
 `policies/` is what `aquasec-casc validate -f aqua/policies` checks on a laptop or in a
-pull request. `export` writes this layout too, for what already exists in Aqua:
-see [adoption.md](adoption.md).
+pull request. `export` writes this layout too, for what already exists in Aqua: see
+[adoption.md](adoption.md). Keep it flat: a ConfigMap's keys cannot hold folders.
 
-`kustomization.yaml` turns the folder into a ConfigMap. A ConfigMap's keys cannot
-hold folders, so keep `policies/` flat, and list each file:
+`Chart.yaml`:
 
 ```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: aqua-casc
-resources:
-  - job.yaml
-configMapGenerator:
-  - name: aqua-casc-config
-    files:
-      - policies/aquasec-casc.yaml
-      - policies/runtime-policy-devtest.yaml
-      - policies/runtime-policy-prod.yaml
-      - policies/assurance-policy-prod.yaml
-generatorOptions:
-  disableNameSuffixHash: true      # the Job refers to it by this name
+apiVersion: v2
+name: aqua-config
+version: 1.0.0
 ```
 
-**A file left out of this list is deleted from Aqua on the next sync**, since no
-file then describes the object. That is what Git-driven deletion means, so review
-this list like the policies themselves. (The exceptions are safety nets: nothing is
-deleted of a kind with no file at all, nor while another file of that kind has not
-landed.) Argo CD stores a ConfigMap in an annotation as well, which limits it to about
-256 KB: that holds a lot of policies, but not without limit.
+`templates/configmap.yaml` takes every file in `policies/`, so a new file needs nothing
+else, and **removing a file deletes its policy from Aqua on the next sync**. That is what
+Git-driven deletion means. (The exceptions are safety nets: nothing is deleted of a kind
+with no file at all, nor while another file of that kind has not landed.) Argo CD stores
+a ConfigMap in an annotation as well, which limits it to about 256 KB: that holds a lot of
+policies, but not without limit.
 
-`job.yaml`, with the internal CA's lines marked. Remove them if you have none:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aqua-casc-config
+data:
+{{ (.Files.Glob "policies/*.yaml").AsConfig | indent 2 }}
+```
+
+`templates/job.yaml`, with the internal CA's lines marked. Remove them if you have none:
 
 ```yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: aqua-casc-apply
+  generateName: aqua-casc-apply-                 # see below: not a fixed name
   annotations:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/sync-wave: "1"            # after the ConfigMap, at wave 0
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 0                   # do not retry a failed apply on its own
-  ttlSecondsAfterFinished: 86400
+  ttlSecondsAfterFinished: 86400    # the Job and its log stay for a day
   template:
     spec:
       restartPolicy: Never
@@ -156,12 +157,16 @@ spec:
             name: aqua-casc-ca                                        # internal CA
 ```
 
+**Keep `generateName`.** With a fixed name and `BeforeHookCreation`, Argo CD can read the
+previous Job's status when it checks the new one, and report a failed apply as a
+successful sync. We saw exactly that on Argo CD 3.6. It is also why this is a Helm chart:
+kustomize refuses `generateName`.
+
 The tool needs no ServiceAccount permissions and writes nothing to the cluster:
 there is no state to keep.
 
-To hold it to the Aqua console and nothing else, add a NetworkPolicy to `resources`.
-Give it the annotation `argocd.argoproj.io/sync-wave: "-1"`, so that it is in place
-before the Job:
+To hold it to the Aqua console and nothing else, add a NetworkPolicy to `templates/`.
+Its sync wave puts it in place before the Job:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -205,12 +210,13 @@ spec:
   syncPolicy:
     automated:
       prune: true
-    retry:                # Argo CD does not try a failed revision again by itself
-      limit: 3
-      backoff: { duration: 2m, factor: 2 }
 ```
 
 Leave out `automated` to press Sync yourself for the first runs.
+
+There is deliberately no `retry`. Aqua locks an account after repeated failed sign-ins,
+and a wrong password retried automatically gets there quickly. A failed revision stays
+failed until you press Sync or merge a fix.
 
 ## 4. Try it
 
@@ -220,10 +226,10 @@ and the sync shows you what `apply` would do. When that reads right, change it t
 that policy is then reported and not corrected. It does not hold back deletions, so
 add `--no-delete` to the arguments if files may be missing.
 
-Sync, then read the Job's log:
+Sync, then read the log of the latest Job:
 
 ```sh
-kubectl -n aqua-casc logs job/aqua-casc-apply
+kubectl -n aqua-casc logs "$(kubectl -n aqua-casc get jobs --sort-by=.metadata.creationTimestamp -o name | tail -1)"
 ```
 
 ```
@@ -238,7 +244,10 @@ Using environment.
 
 ## When a sync fails
 
-The Job exits non-zero, and Argo CD marks the sync failed. The log says why:
+The Job exits non-zero, and the sync operation fails: *one or more synchronization tasks
+completed unsuccessfully*. **The Application can still read `Synced`**, since its
+ConfigMap matches Git, so alert on the last operation's phase and not on the sync status.
+The log says why:
 
 | Log line | What it means | What to do |
 |---|---|---|
@@ -259,6 +268,10 @@ if a sync looks too quiet:
 | `not allowed: ...` | A change Aqua does not allow, such as the scope of a default policy. The rest applied. |
 
 `--detailed-exitcode` exists for scripts. Do not use it in this Job: exit 2 fails the sync.
+
+**Tested** on Argo CD 3.6 on a local cluster, following this page, against a SaaS tenant: a
+merged change reaching Aqua, a schema error failing the sync, and a renamed policy being
+created and the old one deleted.
 
 ## Between syncs
 

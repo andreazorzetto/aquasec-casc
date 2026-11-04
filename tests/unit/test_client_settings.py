@@ -259,7 +259,7 @@ def test_nothing_at_all_points_at_setup():
 
 
 def test_tls_settings_alone_do_not_count_as_credentials():
-    assert not env_has_credentials({"AQUA_URL": "https://x", "AQUA_TLS_INSECURE": "true"})
+    assert not env_has_credentials({"AQUA_CA_BUNDLE": "/ca.pem", "AQUA_TLS_INSECURE": "true"})
 
 
 def test_the_setup_wizard_verifies_tls_like_every_other_command(monkeypatch):

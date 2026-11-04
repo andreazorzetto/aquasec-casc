@@ -2,7 +2,7 @@
 
 About fifteen minutes, from your laptop, against any Aqua tenant you can sign in
 to. Every step below was run against a live SaaS tenant, and the output shown is
-what it printed.
+what it printed, less the summary lines where they add nothing.
 
 **It is safe on a shared tenant.** The playground's runtime policies are
 **disabled**, so they exist but do nothing. Assurance policies have no such switch,
@@ -16,9 +16,11 @@ The tool only ever deletes objects carrying its own marker for this instance
 
 ## 0. Set up
 
+From a clone of this repository, with Python 3.11 or later:
+
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/pip install .
 source .venv/bin/activate
 
 cp -R examples/playground /tmp/playground     # work on a copy; you will edit it
@@ -127,7 +129,12 @@ $ aquasec-casc plan -f /tmp/playground
 ```
 
 The file is the whole policy: a control it leaves out is off. To keep the port
-block, write it into the YAML; to switch a control off, remove it.
+block, write it into the YAML; to switch a control off, remove it. Apply, to put it
+back and start the next steps clean:
+
+```
+$ aquasec-casc apply -f /tmp/playground
+```
 
 Assurance policies behave the same. In `assurance-policy-image.yaml`, remove the line
 `malware: true`:
@@ -203,7 +210,7 @@ adopt those on a shared tenant**: every API edit rewrites a runtime policy's
 ## 8. Let go without deleting
 
 ```
-$ aquasec-casc release -f /tmp/playground --dry-run
+$ aquasec-casc release -f /tmp/playground --dry-run    # -f only finds the instance name
 ~ RuntimePolicy/casc-playground-all-controls: will be released
 ~ RuntimePolicy/casc-playground-baseline: will be released
 ~ RuntimePolicy/casc-playground-handmade: will be released

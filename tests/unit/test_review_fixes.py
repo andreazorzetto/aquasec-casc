@@ -456,3 +456,40 @@ def test_an_empty_directory_gets_a_warning(tmp_path):
 def test_a_name_aqua_cannot_address_is_refused(name):
     with pytest.raises(SchemaError, match="not a name Aqua can address"):
         policy("p", aquaName=name)
+
+
+# --------------------------------------------------------------------------- #
+# From following the docs literally
+# --------------------------------------------------------------------------- #
+
+def test_aqua_url_alone_is_not_quietly_replaced_by_a_profile():
+    from aquasec_casc.client.settings import resolve_settings
+
+    class Profiles:
+        def list_profiles(self):
+            return ["other-tenant"]
+
+        def get_default_profile(self):
+            return "other-tenant"
+
+    with pytest.raises(ConfigError):
+        resolve_settings(None, {"AQUA_URL": "https://aqua.internal"}, Profiles())
+
+
+def test_a_usage_error_does_not_look_like_changes_pending():
+    with pytest.raises(SystemExit) as stopped:
+        main(["plan", "--detailed-exitcode"], stdout=io.StringIO(), stderr=io.StringIO())
+    assert stopped.value.code == 1
+
+
+def test_export_warns_only_of_what_has_no_file_here(tmp_path):
+    (tmp_path / "b.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: b}
+        spec: {applicationScopes: [Two]}
+        """))
+    aqua = FakeAqua({"a": mine("a", application_scopes=["One"]), "b": mine("b", application_scopes=["Two"])})
+    code, _, err = run(["export", "--scope", "One", "-o", str(tmp_path), "--instance", ME,
+                        "--kind", "RuntimePolicy"], aqua)
+    assert code == 0 and "deletes them" not in err

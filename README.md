@@ -76,8 +76,8 @@ docker run --rm --read-only -v "$PWD/examples/playground:/config:ro" \
 
 Credentials come from a saved profile or the environment -- never from a file
 in the repo. In order: `--profile NAME`; `AQUA_*` variables if any are set (see
-[.env.example](.env.example)), which is what CI and Argo CD use; the default
-profile. Profiles are shared with the other aquasec tools:
+[.env.example](.env.example)), which is what CI and Argo CD use, and an incomplete set
+is an error rather than a fallback; the default profile. Profiles are shared with the other aquasec tools:
 
 ```sh
 aquasec-casc setup [NAME]                  # interactive; tests the connection, saves encrypted
@@ -104,7 +104,7 @@ password goes over that connection with it, so keep it to throwaway labs.
 | `plan -f DIR` | Show what `apply` would change. Read-only. |
 | `apply -f DIR` | Make Aqua match the YAML. `--no-delete` holds back deletions. |
 | `export --scope S -o DIR` | Write existing configuration as YAML, ready to adopt. Read-only. |
-| `release` | Stop managing objects without deleting them; `--to` hands them over. |
+| `release` | Stop managing all this instance's objects, or those `--name` picks, without deleting them; `--to` hands them over. |
 | `destroy [-f DIR]` | Delete what the files describe, or everything this instance manages. Asks first. |
 | `schema KIND` | Print a kind's JSON Schema, for editors and CI. |
 | `setup`, `profile` | Save and manage credential profiles. |
