@@ -116,10 +116,11 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     """The API object the YAML asks for, with the ownership marker in place.
 
     ``exclude_unset`` is load-bearing: a schema default is not a statement of
-    intent, so only fields the author wrote are owned -- except under the kind's
-    ``off_when_unset`` prefix, where a field left out means off. Those off
-    values are taken against the server object, so a create sends none: a new
-    object starts with every control off already.
+    intent, so only fields the author wrote are owned -- except the kind's
+    ``always_sent`` fields, and under its ``off_when_unset`` prefixes, where a
+    field left out means off. Those off values are taken against the server
+    object, so a create sends none: a new object starts with every control off
+    already.
 
     The marker goes into the description. If the YAML sets a description, that
     text plus the marker is what we want. If it does not, the console's text is
@@ -129,6 +130,11 @@ def _desired(resource: Resource, kind: KindDef, actual: dict | None, instance: s
     # exclude_none: a key with nothing after it, "limitNewPrivileges:", says the
     # same as leaving it out.
     canonical = resource.model_dump(exclude_unset=True, exclude_none=True, mode="json")
+    if kind.always_sent:
+        everything = resource.model_dump(mode="json")
+        for path in kind.always_sent:
+            if get_path(canonical, path) is MISSING:
+                set_path(canonical, path, get_path(everything, path))
     desired = kind.field_map.to_api(canonical)
     for under in kind.off_when_unset if actual else ():
         off = kind.field_map.switched_off(canonical, actual, under, keep=kind.kept_when_unset)

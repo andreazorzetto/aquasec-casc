@@ -225,7 +225,8 @@ Next: remove these objects' files from Git, or stop the pipeline. While they rem
 
 The policies stay exactly as they are, minus the marker. Running `plan` now
 shows all four as `will be adopted` -- which is the warning above in action.
-`--to <instance>` hands them to another instance instead.
+`--to <instance>` hands them to another instance instead. Put their files in that
+instance's configuration first: without them, its next apply deletes them.
 
 ## 9. Clean up
 

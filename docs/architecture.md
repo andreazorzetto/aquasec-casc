@@ -130,6 +130,11 @@ belongs to Aqua or the console and is left alone.**
   └────────────────────────────────┴──────────────────────────────────────┘
 ```
 
+**Three fields always have a value**: left out, a runtime policy has `enabled: true`,
+`enforce: false` (audit) and `runtimeType: container`, on create and on update. Aqua's own
+default would create it disabled, with nothing in the file saying so. Removing an
+**exclusion** from `excludeApplicationScopes` removes it too.
+
 **The file is the whole policy.** A control the YAML leaves out is off, as on a
 new policy, where Aqua starts every control off (verified live). So the same
 file gives the same policy whether it creates the object or updates it, and a
@@ -158,8 +163,7 @@ them from the file removes them.
 
 Left as Aqua has them, because they are not controls or not covered:
 
-- fields outside those -- description, `enabled`, `enforce`, application scopes --
-  when the YAML leaves them out (the marker is still added to the description);
+- the description, when the YAML leaves it out (the marker is still added);
 - **Bypass Scope** -- scope, not a control, and on by default on the default
   container policy, exempting Aqua's own components;
 - **Additional Scope Criteria**: Aqua fills in its own when a policy is created
@@ -253,6 +257,10 @@ carry on exactly as they are, unmanaged. `--to <instance>` rewrites the marker
 instead, moving the objects to another instance (another team or repository, or
 a renamed instance) without an unmanaged moment in between.
 
+**For a hand-over, put the files in the receiving configuration first.** Its runs report
+the objects as blocked until the hand-over, which is harmless. Without the files, its
+next apply deletes them: they carry its marker, and no file describes them.
+
 ```
   aquasec-casc release --dry-run            what would be released
   aquasec-casc release [--name 'prod-*']    remove the marker
@@ -267,8 +275,9 @@ a renamed instance) without an unmanaged moment in between.
   replace; one that changed owner in the meantime is left alone.
 - **It is reversible.** `export` and `apply` adopt the objects again.
 - **Order matters: release first, then remove the files or stop the pipeline.**
-  While both remain, the next apply adopts the objects again. After a hand-over,
-  the old instance's runs report the objects as blocked until its files go.
+  While both remain, the next apply adopts the objects again, and then removing the
+  files deletes them. After a hand-over, the old instance's runs report the objects as
+  blocked until its files go.
 - On runtime policies the API rewrites `author` on every edit, so released
   policies still show the tool's identity as author.
 

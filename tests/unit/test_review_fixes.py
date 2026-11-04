@@ -394,3 +394,65 @@ def test_a_failure_to_list_a_type_is_a_failure(monkeypatch):
     client = type("C", (), {"server": "s", "token": "t", "timeout": 1})()
     with pytest.raises(ApiError):
         ac._all_assurance_policies(client)
+
+
+# --------------------------------------------------------------------------- #
+# Third round
+# --------------------------------------------------------------------------- #
+
+def test_a_runtime_policy_left_without_enabled_is_created_on():
+    """Aqua's default would be off, with plan then saying it is in sync."""
+    aqua = FakeAqua()
+    resource = load_document({"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
+                              "metadata": {"name": "p"}, "spec": {"applicationScopes": ["Global"]}}, "t")[0]
+    reconcile_all([resource], aqua, opts())
+    stored_ = aqua.objects["p"]
+    assert (stored_["enabled"], stored_["enforce"], stored_["runtime_type"]) == (True, False, "container")
+
+
+def test_a_runtime_policy_disabled_in_the_console_is_drift_even_if_the_file_says_nothing():
+    aqua = FakeAqua({"p": mine("p", enabled=False, enforce=False, runtime_type="container")})
+    resource = load_document({"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
+                              "metadata": {"name": "p"}, "spec": {"applicationScopes": ["Global"]}}, "t")[0]
+    r = reconcile_all([resource], aqua, opts(dry_run=True)).results[0]
+    assert {c.path: c.after for c in r.plan.changes}.get("enabled") is True
+
+
+def test_an_exclusion_removed_from_the_file_is_removed():
+    aqua = FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])})
+    r = reconcile_all([policy("p")], aqua, opts(dry_run=True)).results[0]
+    assert {c.path: c.after for c in r.plan.changes}["exclude_application_scopes"] == []
+
+
+def test_export_does_not_overwrite_another_objects_file(tmp_path):
+    first = FakeAqua({"Foo Bar": server("Foo Bar", description="x", application_scopes=["A"])})
+    args = ["export", "-o", str(tmp_path), "--instance", ME, "--kind", "RuntimePolicy", "--force"]
+    assert run([*args, "--scope", "A"], first)[0] == 0
+    second = FakeAqua({"foo-bar": server("foo-bar", description="x", application_scopes=["B"])})
+    code, _, err = run([*args, "--scope", "B"], second)
+    assert code == 1 and "a different object" in err
+    assert "Foo Bar" in (tmp_path / "runtime-policy-foo-bar.yaml").read_text()
+    assert run([*args, "--scope", "A"], first)[0] == 0          # the same one again is fine
+
+
+def test_a_hand_over_warns_about_the_receiver_needing_the_files():
+    aqua = FakeAqua({"p": mine("p")})
+    code, _, err = run(["release", "--to", "other", "--instance", ME], aqua)
+    assert code == 0 and "without them, that apply deletes the objects" in err
+
+
+def test_quotes_in_a_password_are_kept_and_a_trailing_newline_is_not():
+    settings = settings_from_env({"AQUA_USER": "u", "AQUA_PASSWORD": "\"pa'ss\"\n",
+                                  "AQUA_URL": "https://aqua.internal"})
+    assert settings.credentials.password == "\"pa'ss\""
+
+
+def test_an_empty_directory_gets_a_warning(tmp_path):
+    code, _, err = run(["plan", "-f", str(tmp_path), "--instance", ME], FakeAqua())
+    assert code == 0 and "no resources in" in err
+
+
+@pytest.mark.parametrize("name", [".", "..", " ", "x" * 129])
+def test_a_name_aqua_cannot_address_is_refused(name):
+    with pytest.raises(SchemaError, match="not a name Aqua can address"):
+        policy("p", aquaName=name)

@@ -43,7 +43,8 @@ def run(argv, aqua=None):
 
 def marked(name, **extra):
     return {"name": name, "description": f"x\n\n{marker.marker('platform')}",
-            "application_scopes": ["DevTest"], "enforce": False,
+            "application_scopes": ["DevTest"], "enforce": False, "enabled": True,
+            "runtime_type": "container",
             "block_disallowed_images": False, "is_ootb_policy": False, **extra}
 
 
@@ -238,8 +239,8 @@ def test_release_with_nothing_marked_says_so(repo):
 
 def test_hand_over(repo):
     aqua = FakeAqua({"p": marked("p")})
-    code, out, _ = run(["release", "-f", str(repo), "--to", "team-b"], aqua)
-    assert code == 0 and "handed over" in out and "1 handed over" in out and "blocked" in out
+    code, out, err = run(["release", "-f", str(repo), "--to", "team-b"], aqua)
+    assert code == 0 and "handed over" in out and "1 handed over" in out and "blocked" in err
     assert marker.owner(aqua.objects["p"]["description"]) == "team-b"
 
 

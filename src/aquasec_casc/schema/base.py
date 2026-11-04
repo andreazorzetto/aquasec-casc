@@ -120,6 +120,14 @@ class ManagedSpec(StrictModel):
 
     enforcement: Enforcement = Enforcement.RECONCILE
 
+    @field_validator("aquaName")
+    @classmethod
+    def _addressable(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or value in (".", "..") or len(value) > 128):
+            raise ValueError("not a name Aqua can address: at most 128 characters, and not "
+                             "empty, '.' or '..'")
+        return value
+
 
 class Resource(StrictModel):
     """The outer envelope: apiVersion, kind, metadata, spec, status."""

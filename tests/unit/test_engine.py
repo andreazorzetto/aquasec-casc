@@ -77,7 +77,7 @@ def policy(name="devtest-baseline", **spec):
 
 def server(name="devtest-baseline", description=f"Dev/test\n\n{MARK}", **extra):
     base = {"name": name, "description": description, "enforce": False, "enabled": True,
-            "application_scopes": ["DevTest"], "block_disallowed_images": False,
+            "runtime_type": "container", "application_scopes": ["DevTest"], "block_disallowed_images": False,
             "author": "someone@example.com", "is_ootb_policy": False,
             "malware_scan_options": {"enabled": False},
             "tripwire": {"enabled": True}}    # a setting the tool does not cover
@@ -245,15 +245,15 @@ def test_bypass_scope_left_out_is_left_as_aqua_has_it():
     assert aqua.objects["devtest-baseline"]["bypass_scope"] == bypass
 
 
-def test_a_create_sends_only_what_the_file_says():
+def test_a_create_sends_only_what_the_file_says_and_the_fields_that_always_have_a_value():
     """A new policy starts with every control off; there is nothing to switch off."""
     aqua = FakeAqua()
     reconcile(policy(), KIND, aqua, opts())
     body = dict(aqua.objects["devtest-baseline"])
     for server_owned in ("author", "is_ootb_policy", "id"):
         body.pop(server_owned)
-    assert set(body) == {"name", "description", "enforce", "application_scopes",
-                         "block_disallowed_images"}
+    assert set(body) == {"name", "description", "enforce", "enabled", "runtime_type",
+                         "application_scopes", "block_disallowed_images"}
 
 
 def test_report_only_detects_and_changes_nothing():

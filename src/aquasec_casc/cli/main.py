@@ -313,6 +313,8 @@ def _reconcile(args, out: Out, connect: Callable, dry_run: bool) -> int:
     result = load_resources(path)
     for warning in result.warnings:
         out.notes.line(f"warning: {warning}", "yellow")
+    if not result.resources:
+        out.notes.line(f"warning: no resources in {path}. Is it the right path?", "yellow")
 
     client = connect(args.profile)
     # One file is part of the configuration: the rest has no file in this run, and
@@ -338,6 +340,26 @@ def cmd_apply(args, out, connect):
     return _reconcile(args, out, connect, dry_run=False)
 
 
+def _same_object_or_refuse(path: Path, document: dict) -> None:
+    """Two names can make one file name. Overwriting the other's file would leave it
+    with none, and an apply would delete it."""
+    if not path.exists():
+        return
+    try:
+        held = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return
+    if not isinstance(held, dict) or held.get("kind") != document["kind"]:
+        return
+    spec, new = held.get("spec") or {}, document["spec"]
+    name = (held.get("metadata") or {}).get("name")
+    if (spec.get("aquaName") or name) != (new.get("aquaName") or document["metadata"]["name"]) or (
+            spec.get("assuranceType") != new.get("assuranceType")):
+        raise UsageError(f"{path} holds {spec.get('aquaName') or name!r}, a different object from "
+                         f"{new.get('aquaName') or document['metadata']['name']!r}, whose file name "
+                         "would be the same. Export it into another folder, and rename one.")
+
+
 def cmd_export(args, out: Out, connect: Callable) -> int:
     target = _given(args.out_dir)
     if target.exists() and not target.is_dir():
@@ -356,6 +378,8 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
     linked = [e.filename for e in result.exported if (target / e.filename).is_symlink()]
     if linked:
         raise UsageError(f"{target / linked[0]} is a symbolic link; refusing to write through it.")
+    for item in result.exported:
+        _same_object_or_refuse(target / item.filename, item.document)
     existing = [e.filename for e in result.exported if (target / e.filename).exists()]
     if existing and not args.force:
         raise UsageError(
@@ -453,9 +477,10 @@ def cmd_release(args, out: Out, connect: Callable) -> int:
     if count:
         lead = "Afterwards" if args.dry_run else "Next"
         if to:
-            out.line(f"{lead}: move these objects' files to the '{to}' configuration and remove "
-                     f"them here. Until then, applies from '{instance}' report them as blocked.",
-                     "dim")
+            out.notes.line(f"The '{to}' configuration needs these objects' files before its next "
+                           f"apply: without them, that apply deletes the objects. Then remove them "
+                           f"here; until then, applies from '{instance}' report them as blocked.",
+                           "yellow")
         else:
             out.line(f"{lead}: remove these objects' files from Git, or stop the pipeline. "
                      "While they remain, the next apply adopts the objects again.", "dim")

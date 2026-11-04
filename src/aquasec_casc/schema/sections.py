@@ -61,7 +61,7 @@ class ScopeVariable(StrictModel):
     """One term of a scope expression, e.g. a container label match."""
 
     attribute: str
-    value: str
+    value: str = ""
     name: str | None = None
 
 

@@ -47,6 +47,15 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
+def _secret(value: str | None) -> str | None:
+    """A password or key as it was given, apart from the newline a file or secret
+    store may add. Quotes can be part of it; losing them means a failed sign-in, and
+    enough of those lock the account."""
+    if value is None:
+        return None
+    return value.strip("\r\n") or None
+
+
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -149,8 +158,8 @@ def env_has_credentials(env: Mapping[str, str]) -> bool:
 def credentials_from_env(env: Mapping[str, str]) -> Credentials:
     url = _normalise_url(_clean(env.get("AQUA_URL")))
     api_endpoint = _clean(env.get("AQUA_API_ENDPOINT"))
-    key, secret = _clean(env.get("AQUA_API_KEY")), _clean(env.get("AQUA_API_SECRET"))
-    user, password = _clean(env.get("AQUA_USER")), _clean(env.get("AQUA_PASSWORD"))
+    key, secret = _clean(env.get("AQUA_API_KEY")), _secret(env.get("AQUA_API_SECRET"))
+    user, password = _clean(env.get("AQUA_USER")), _secret(env.get("AQUA_PASSWORD"))
 
     has_key = bool(key or secret)
     has_user = bool(user or password)

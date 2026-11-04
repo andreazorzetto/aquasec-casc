@@ -74,6 +74,11 @@ class KindDef:
     controls: the file is the whole policy, so a control removed from it -- or
     switched on only in the console -- goes off, as on a new policy."""
 
+    always_sent: tuple[str, ...] = ()
+    """Canonical paths held to the schema's default when the YAML leaves them out,
+    since Aqua's own default differs and says something the file did not: left to
+    itself, Aqua creates a runtime policy disabled."""
+
     kept_when_unset: tuple[str, ...] = ()
     """Canonical prefixes under ``off_when_unset`` exempt from it: left as the
     server has them when the YAML leaves them out."""
@@ -156,7 +161,8 @@ REGISTRY: dict[str, KindDef] = {
         }),
         predefined_immutable=("application_scopes",),
         builtin_names=frozenset(SHIPPED_RUNTIME_POLICIES),
-        off_when_unset=("spec.controls",),
+        always_sent=("spec.enabled", "spec.enforce", "spec.runtimeType"),
+        off_when_unset=("spec.controls", "spec.excludeApplicationScopes"),
         # Bypass Scope is scope, not a control, and the default container policy
         # ships with it on, exempting Aqua's own components and kube-system.
         # Switching it off because a file leaves it out would put them in scope.
@@ -179,7 +185,8 @@ REGISTRY: dict[str, KindDef] = {
         builtin_names=frozenset(SHIPPED_ASSURANCE_POLICIES),
         predefined=frozenset(SHIPPED_ASSURANCE_POLICIES),
         predefined_immutable=("application_scopes",),
-        off_when_unset=("spec.actions", "spec.exceptions", "spec.controls"),
+        off_when_unset=("spec.actions", "spec.exceptions", "spec.controls",
+                        "spec.excludeApplicationScopes"),
         drop_on_export=assurance_policy.not_offered_on_this_type,
     ),
 }
