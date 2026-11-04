@@ -233,6 +233,10 @@ and the sync shows you what `apply` would do. When that reads right, change it t
 that policy is then reported and not corrected. It does not hold back deletions, so
 add `--no-delete` to the arguments if files may be missing.
 
+**A file with the name of a policy already in Aqua takes that policy over**, and turns off
+every control it leaves out. Under automated sync nobody reads a plan first, so start from
+`export`, which writes what is there: see [adoption.md](adoption.md).
+
 Sync, then read the log of the latest Job:
 
 ```sh
@@ -259,7 +263,7 @@ The log says why:
 | Log line | What it means | What to do |
 |---|---|---|
 | `error: ...: N validation problem` | A file does not match the schema. Nothing was sent. | Fix the file. `validate` catches this before a merge. |
-| `x ...: FAILED` | Aqua refused it; the message is Aqua's. The other policies still applied, and nothing of that kind was deleted. | Often a scope that does not exist in Aqua. |
+| `x ...: FAILED` | Aqua refused it, or the tool did, and the message says which. The other policies still applied, and nothing of that kind was deleted. | Often a scope that does not exist in Aqua, or a file that does not say `enabled`, `enforce` or `runtimeType` where Aqua differs from their defaults. |
 | `not kept by Aqua: ...` | Aqua accepted the write and did not keep a field. Usually a field this Aqua version lacks. | Update Aqua, or remove the setting from the file. |
 | `error: Sign-in failed` | The credentials, or the console's address. | Check the Secret. Aqua locks an account after repeated failures. |
 | `error: ... could not connect to Aqua` | No route, or the NetworkPolicy. | Check the address and egress. |

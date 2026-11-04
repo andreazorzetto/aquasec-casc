@@ -552,6 +552,8 @@ class RuntimePolicySpec(ManagedSpec):
     """
 
     enforceAfterDays: int | None = None
+    """Enforce Mode after this many days. When Aqua makes the switch, write ``enforce:
+    true`` too: a file still saying ``false`` puts the policy back in audit."""
     runtimeType: RuntimeType = RuntimeType.CONTAINER
 
     applicationScopes: list[str] = Field(

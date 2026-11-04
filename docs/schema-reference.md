@@ -29,7 +29,7 @@ All under `spec`.
 | `description` | text | `description` |  |
 | `enabled` | true/false | `enabled` |  |
 | `enforce` | true/false | `enforce` | False is audit mode, True is enforce mode. Defaults to audit: a policy that silently starts enforcing on creation is the wrong default for a tool whose first run may be against production. |
-| `enforceAfterDays` | number | `enforce_after_days` |  |
+| `enforceAfterDays` | number | `enforce_after_days` | Enforce Mode after this many days. When Aqua makes the switch, write ``enforce: true`` too: a file still saying ``false`` puts the policy back in audit. |
 | `runtimeType` | `container` \| `host` \| `function` | `runtime_type` |  |
 | `applicationScopes` | list of text | `application_scopes` | The application scopes this policy applies to. Required: when Aqua is given none it applies the policy to Global, meaning every workload. Write ["Global"] if that is what you intend. |
 | `excludeApplicationScopes` | list of text | `exclude_application_scopes` |  |

@@ -432,11 +432,15 @@ def test_a_stated_value_is_applied_as_ever():
     assert aqua.objects["p"]["enabled"] is True
 
 
-def test_a_policys_type_cannot_change():
-    aqua = FakeAqua({"p": mine("p", runtime_type="host")})
-    doc = {**BARE, "spec": {**BARE["spec"], "runtimeType": "container"}}
-    r = reconcile_all([load_document(doc, "t")[0]], aqua, opts()).results[0]
-    assert r.not_allowed and aqua.objects["p"]["runtime_type"] == "host"
+def test_a_policy_of_another_type_changes_nothing_at_all_and_holds_deletions_back():
+    aqua = FakeAqua({"p": mine("p", runtime_type="container", no_new_privileges=True),
+                     "gone": mine("gone")})
+    doc = {**BARE, "spec": {**BARE["spec"], "runtimeType": "host"}}
+    summary = reconcile_all([load_document(doc, "t")[0]], aqua, opts())
+    assert summary.results[0].reason == "Immutable" and summary.exit_code(detailed=False) == 1
+    assert aqua.writes() == [] and "gone" in aqua.objects
+    plan = reconcile_all([load_document(doc, "t")[0]], aqua, opts(dry_run=True))
+    assert plan.results[0].reason == "Immutable"
 
 
 def test_no_credentials_with_a_read_only_home_is_the_help_text(monkeypatch):

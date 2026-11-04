@@ -136,7 +136,8 @@ disabled, with nothing in the file saying so. On an existing policy, a left-out 
 whose default differs from what Aqua holds **fails the run and changes nothing**:
 applying the default could disable a policy or stop it enforcing, and ignoring it would
 report in sync with a policy that is not what the file reads as. `export` writes all
-three, so this comes up only in hand-written files. A policy's type cannot change at all.
+three, so this comes up only in hand-written files. A policy's type cannot change: a file
+stating another type fails, and changes nothing.
 Removing an **exclusion** from `excludeApplicationScopes` removes it too.
 
 **The file is the whole policy.** A control the YAML leaves out is off, as on a

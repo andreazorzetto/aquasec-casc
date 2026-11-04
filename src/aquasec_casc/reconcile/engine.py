@@ -85,12 +85,9 @@ def _withheld(kind: KindDef, obj: dict | None, key: str, path: str) -> str | Non
     """Why Aqua would refuse a change to ``path`` on this object, or None.
 
     Two rules, both matching what the console allows:
-    * a field no object of this kind can change (a policy's type);
     * a predefined object's locked fields (the defaults' scope);
     * fields that exist only on particular system objects (Bypass Scope).
     """
-    if obj and _touches(path, kind.immutable):
-        return "cannot change once a policy exists; make a new one"
     if is_predefined(kind, obj, key) and _touches(path, kind.predefined_immutable):
         return "cannot change on a default policy"
     for prefix, names in kind.only_on.items():
@@ -253,6 +250,17 @@ def reconcile(
                          "manage the same object -- remove it from one of them."),
             )
         adopting = found is None
+
+    # Not "the rest still applies": a host policy's controls written onto a container
+    # policy would switch off what that policy does, and it would still be a container
+    # policy. The file describes some other policy.
+    for path in kind.immutable:
+        wanted, held = get_path(desired, path), get_path(actual, path)
+        if wanted is not MISSING and held is not MISSING and wanted != held:
+            return Result(**common, outcome=Outcome.FAILED, reason="Immutable",
+                          message=(f"{path}: the file says {wanted!r}, Aqua holds {held!r}, and it "
+                                   "cannot change. Name a new policy, or correct the file; nothing "
+                                   "was changed."))
 
     unstated = _unstated(resource, kind, actual)
     if unstated:
