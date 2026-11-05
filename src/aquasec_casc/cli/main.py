@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -651,11 +652,20 @@ class _Parser(argparse.ArgumentParser):
         self.exit(1, f"{self.prog}: error: {message}\n")
 
 
+def _version() -> str:
+    try:
+        return metadata.version(NAME)
+    except metadata.PackageNotFoundError:  # run from a source tree, not installed
+        return "unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
         prog=NAME, allow_abbrev=False,
         description="Config-as-code for Aqua Security: make Aqua match what Git says.",
     )
+    parser.add_argument("--version", action="version",
+                        version=f"{NAME} {_version()}")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def common(p, needs_files=True):

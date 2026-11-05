@@ -313,6 +313,7 @@ Carry both files across, then on the inside:
 sha256sum -c aquasec-casc-0.1.0.tar.sha256
 docker load -i aquasec-casc-0.1.0.tar
 docker tag andreazorzetto/aquasec-casc:0.1.0 registry.internal.example/aquasec-casc:0.1.0
+docker run --rm --network none andreazorzetto/aquasec-casc:0.1.0 --version
 docker push registry.internal.example/aquasec-casc:0.1.0
 ```
 

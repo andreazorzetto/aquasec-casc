@@ -14,9 +14,9 @@ authors = [{ name = "Andrea Zorzetto" }]
 # Pinned deliberately: this ships as a single mirrorable image into an air-gapped
 # environment, where "resolves to whatever is latest" is not a thing that can happen.
 dependencies = [
-    # The Aqua API client. 0.14.2 is the first with Tanzu assurance policies, and
+    # The Aqua API client. 0.14.3 is the first with Tanzu assurance policies, and
     # that lets a client refuse redirects and verifies TLS on every sign-in path.
-    "aquasec==0.14.2",
+    "aquasec==0.14.3",
     "pydantic==2.13.4",
     "PyYAML==6.0.2",
     "requests==2.32.3",

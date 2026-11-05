@@ -520,6 +520,14 @@ def test_a_usage_error_does_not_look_like_changes_pending():
     assert stopped.value.code == 1
 
 
+def test_version_needs_no_command_and_no_credentials(capsys):
+    with pytest.raises(SystemExit) as stopped:
+        main(["--version"], stdout=io.StringIO(), stderr=io.StringIO())
+    assert stopped.value.code == 0
+    name, version = capsys.readouterr().out.split()
+    assert name == "aquasec-casc" and version[0].isdigit()
+
+
 def test_export_warns_only_of_what_has_no_file_here(tmp_path):
     (tmp_path / "b.yaml").write_text(textwrap.dedent("""\
         apiVersion: config.aquasec.com/v1alpha1
