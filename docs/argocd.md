@@ -25,9 +25,11 @@ On a connected machine, for your cluster's architecture:
 
 ```sh
 docker pull --platform linux/amd64 andreazorzetto/aquasec-casc:0.1.0
-docker save andreazorzetto/aquasec-casc:0.1.0 -o aquasec-casc-0.1.0.tar
+docker save --platform linux/amd64 andreazorzetto/aquasec-casc:0.1.0 -o aquasec-casc-0.1.0.tar
 sha256sum aquasec-casc-0.1.0.tar > aquasec-casc-0.1.0.tar.sha256
 ```
+
+Without `--platform`, `docker save` fails on current Docker, because the image is multi-architecture and only one was pulled. Docker older than 28 has no such flag, so leave it out there.
 
 Carry both files across, then on the inside:
 
