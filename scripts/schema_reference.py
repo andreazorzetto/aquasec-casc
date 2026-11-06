@@ -26,7 +26,8 @@ Generated from the schema by `scripts/schema_reference.py`; do not edit by hand.
 Names are the console's labels in camelCase. Under `actions`, `exceptions` and
 `controls`, **what the file leaves out is off**. A control with settings can be
 written `true`, and writing any of its settings switches it on. `aquasec-casc schema
-KIND` prints the same as JSON Schema, for editors and CI.
+KIND` prints the same as JSON Schema, for editors and CI. What this was tested against is
+[at the end](#tested-against).
 """
 
 
@@ -103,43 +104,42 @@ def _not_offered(title: str, table: dict[str, str]) -> list[str]:
 
 TESTED = """## Tested against
 
-`tests/integration/test_every_field.py` puts every control and setting here through create,
-a re-save, export, removal and update, on a live tenant, for each type that offers it. It also
-changes what says what a policy is: `enabled` both ways, the description, the scopes, the
-additional scope criteria, and refuses a change of type.
+`tests/integration/test_every_field.py` puts every control and setting through create, a re-save,
+export, removal and update, on a live tenant, for each type that offers it. It also changes
+`enabled`, the description, the scopes and the additional scope criteria, and refuses a change of type.
 
-| Aqua | |
-|---|---|
-| SaaS U14 | All of it, signing in with a user name and password, except writing `bypassScope`. All 61 policies on the tenant export and plan only the marker. |
-| Self-hosted, console 10.8.1 (its exports say version 2022.4) | All of it, signing in at `/api/v1/login`. All 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+| Aqua | Signing in with | Result |
+|---|---|---|
+| SaaS U14 | user name and password | All of it, except writing `bypassScope`. All 61 policies export and plan only the marker. |
+| Self-hosted, console 10.8.1 (its exports say version 2022.4) | user name and password, at `/api/v1/login` | All of it. All 32 policies export and plan only the marker. Aqua's default policies were adopted, edited and released, leaving them as they were. |
 
-`bypassScope` is offered on the default container and host runtime policies. Only the self-hosted
+**Not tested live:** API key sign-in, an older self-hosted version, a CA bundle against a real console
+(unit tests and a local HTTPS check cover it), and changing the scopes of a `cf_application` policy.
+
+**`bypassScope`** is offered on the default container and host runtime policies. Only the self-hosted
 test writes it, with `AQUASEC_CASC_LIVE_DEFAULTS=1`, since it edits Aqua's default policies and the
-SaaS tenant is shared. On SaaS the round trip covers reading it, and nothing there covers writing it.
+SaaS tenant is shared. On SaaS the round trip covers reading it, and nothing covers writing it.
 
-Not tested live: API key sign-in on either, an older self-hosted version (where read-back is what
-reports a field that version lacks), a CA bundle against a real console (unit tests cover the setting; a throwaway local HTTPS check in review covered the connection), and changing the scopes of a `cf_application` policy, for want of a scope that covers one.
+**`excludeApplicationScopes`** is [not offered](#not-offered). On assurance policies, neither version
+tested has it: both drop it. Aqua expects to ship it in SaaS U15 and in self-hosted 2022.4 U48 / 10.9.0.
+That is Aqua's statement, not something seen here, and whether it must also be switched on is not
+known. It can come back once it can be tested on one of those. That an update keeps what Aqua holds
+was tested live on runtime policies, and by unit tests on assurance policies, which cannot hold it here.
 
-`excludeApplicationScopes` is not offered on either kind, for the reasons under
-[Not offered](#not-offered). On assurance policies, neither version tested has it: both drop it.
-Aqua expects to ship it in SaaS U15 and in self-hosted 2022.4 U48 / 10.9.0. That is Aqua's statement,
-not something seen here, and whether it must also be switched on there is not known. It can come
-back once it can be tested on one of those. The live test that an update keeps what Aqua holds ran
-on runtime policies only, as assurance policies on these versions cannot hold it; unit tests cover those.
-
-These tests show what Aqua stores, not that it acts on it. Aqua keeps some fields it does not
-use, so read-back cannot show that a version enforces a control. `vulnerabilityExploitabilityAndSeverity`
-is one: on self-hosted 2022.4, its `CISA` exploit type needs build 2022.4.818 or later.
+**These tests show what Aqua stores, not that it acts on it.** Aqua keeps some fields it does not use,
+so read-back cannot show that a version enforces a control. For one,
+`vulnerabilityExploitabilityAndSeverity`'s `CISA` type needs build 2022.4.818 or later on self-hosted 2022.4.
 """
 
 
 def main() -> None:
-    lines = [HEAD, TESTED, *_kind("RuntimePolicy"), *_kind("AssurancePolicy"),
+    lines = [HEAD, *_kind("RuntimePolicy"), *_kind("AssurancePolicy"),
              "## Not offered", "",
              "In Aqua's API, and left as Aqua has them: `apply` never changes these. Each was",
              "checked against the API spec, the docs and a live tenant.", "",
              *_not_offered("RuntimePolicy", RUNTIME_NOT_OFFERED),
-             *_not_offered("AssurancePolicy", ASSURANCE_NOT_OFFERED)]
+             *_not_offered("AssurancePolicy", ASSURANCE_NOT_OFFERED),
+             TESTED]
     print("\n".join(lines).rstrip())
 
 

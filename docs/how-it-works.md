@@ -1,394 +1,118 @@
-# Architecture
+# How it works
 
-Three layers. The schema and the reconciler are the product; how they get
-triggered is a thin wrapper.
+Each run reads the YAML, reads Aqua, works out the smallest change, and makes it. There is no state file, so it behaves the same on a laptop, in CI and in an Argo CD hook.
 
-```
-                     YAML in Git
-                     the only thing a human edits
-                            │
-   ╔════════════════════════▼═══════════════════════════════════════╗
-   ║  1   SCHEMA                                   the vocabulary   ║
-   ║                                                                ║
-   ║      Kubernetes-shaped YAML (apiVersion / kind / metadata /    ║
-   ║      spec). Validated before anything is sent, so a typo is    ║
-   ║      caught in CI rather than in production.                   ║
-   ╚════════════════════════╤═══════════════════════════════════════╝
-                            │
-   ╔════════════════════════▼═══════════════════════════════════════╗
-   ║  2   RECONCILER                                   the engine   ║
-   ║                                              ◄── the product   ║
-   ║      Reads Aqua, compares against Git, decides the minimum     ║
-   ║      safe change. All of the difficulty lives here.            ║
-   ╚════════════════════════╤═══════════════════════════════════════╝
-                            │
-   ╔════════════════════════▼═══════════════════════════════════════╗
-   ║  3   RUNNER                                      the trigger   ║
-   ║                                                                ║
-   ║      "run once and exit"      ← phase 1, a CLI                 ║
-   ║      "run forever and watch"  ← phase 2, an operator           ║
-   ╚════════════════════════╤═══════════════════════════════════════╝
-                            │
-                     Aqua REST API
-```
+## Ownership
 
-**Why it is split this way.** Layer 3 is the only part that knows how it was
-invoked. Swap it and the engine underneath is untouched — so phase 2 is a
-wrapper, not a rewrite, and phase 1 is not throwaway.
-
-The reconciler imports nothing from the CLI, prints nothing, and never calls
-`sys.exit`. It returns result objects and the caller renders them. Only the
-client adapter (`aquasec_casc/client/`) talks to aquasec-lib. Both rules are
-enforced by tests (`tests/unit/test_layering.py`), not by discipline.
-
----
-
-## Stateless by design
-
-> The tool has no state at all: no state file, no in-cluster backend, nothing to
-> persist or commit back.
-
-**Why.** In the Argo CD hook the config arrives as a read-only ConfigMap mount
-that is discarded after each run, so a state file could neither be written nor
-survive. The alternatives were an in-cluster ConfigMap backend — which needs
-RBAC that a security team has to approve — or behaving differently in Argo
-than on a laptop or in CI. Stateless avoids both: the tool behaves identically
-everywhere, with nothing to set up and nothing to commit back.
-
-**How it works without state.** Ownership lives on the Aqua object itself, the
-same idea as `kubectl apply`'s annotation or Argo CD's tracking label. When the
-tool writes an object, its description carries an ownership marker on its own
-line:
+A policy the tool manages carries a marker on its own line in its description:
 
 ```
-  Dev/test baseline -- no image-compliance enforcement
+Dev/test baseline -- no image-compliance enforcement
 
-  managed-by: aquasec-casc/platform
+managed-by: aquasec-casc/platform
 ```
 
-- The part after the slash is the **instance name**, set in a committed
-  `aquasec-casc.yaml` at the config root (`instance: platform`), overridable with
-  `--instance` or `AQUASEC_CASC_INSTANCE`. It is required: two repositories or
-  teams on one tenant must never treat each other's objects as their own.
-- The marker is part of the desired value: it is appended to the description
-  before diffing, so it never shows up as drift.
-- `export` strips it when writing YAML. If someone removes it in the console,
-  the next apply restores it.
-- Verified on a live tenant: descriptions keep newlines and store at least
-  10,000 characters exactly.
+- **`platform` is the instance name**, set in `aquasec-casc.yaml` at the config root, or with `--instance` or `AQUASEC_CASC_INSTANCE`. It is required, so two teams on one tenant never treat each other's policies as their own.
+- **A policy marked by another instance is blocked** and reported, never changed.
+- **The marker never shows as drift.** `export` strips it, and if someone removes it in the console, the next apply restores it.
+- **A policy duplicated in the console carries the marker too.** No file describes the copy, so the next apply deletes it. Remove the marker line from the copy.
 
-Kinds declare whether they are **collections** (policies, scopes, enforcer
-groups — many named objects, which carry the marker and take part in orphan
-detection) or **singletons** (settings objects, which carry no marker and are
-simply configured as Git says).
-
-**What was given up, deliberately.**
-
-| Lost | Why it is acceptable |
-|---|---|
-| "Released field" bookkeeping — knowing a field the YAML used to set and no longer does | The tool never reset released fields anyway (see below), so this was close to cosmetic |
-| Rename detection | Aqua cannot rename an object. A Git-side rename is a new object plus an orphan, handled by deletion below |
-
-The `StateBackend` interface remains as the seam for phase 2, where an operator
-would report observed state on the custom resource's `.status`. Phase 1 uses a
-no-op backend.
-
----
-
-## Inside the reconciler: desired against actual
-
-Aqua returns dozens of fields the YAML never mentions — defaults, timestamps,
-computed values, things somebody configured in the console. A naive diff reads
-every one of those as drift and tries to null them.
-
-The rule that prevents it: **the fields the YAML mentions are ours, and so are
-the security controls, whether the YAML mentions them or not. Every other field
-belongs to Aqua or the console and is left alone.**
-
-```
-     DESIRED                         ACTUAL
-     what Git says, plus             the complete object,
-     the ownership marker            as Aqua returns it
-         │                                │
-         └───────────────┬────────────────┘
-                         ▼
-                  ┌──────────────┐
-                  │     PLAN     │   the minimum set of changes,
-                  └──────────────┘   shown before anything is written
-```
-
-```
-  ┌────────────────────────────────┬──────────────────────────────────────┐
-  │ In the YAML, and Aqua differs  │ Drift. Put it back to what Git says. │
-  ├────────────────────────────────┼──────────────────────────────────────┤
-  │ A control not in the YAML      │ Off. Switched off if it is on.       │
-  ├────────────────────────────────┼──────────────────────────────────────┤
-  │ Anything else not in the YAML  │ An Aqua default, or a console edit.  │
-  │                                │ LEFT ALONE.                          │
-  ├────────────────────────────────┼──────────────────────────────────────┤
-  │ In the YAML, missing in Aqua   │ Added.                               │
-  └────────────────────────────────┴──────────────────────────────────────┘
-```
-
-**Three fields have defaults**: left out, a new runtime policy is `enabled: true`,
-`enforce: false` (audit) and `runtimeType: container`. Aqua's own default would create it
-disabled, with nothing in the file saying so. On an existing policy, a left-out field
-whose default differs from what Aqua holds **fails the run and changes nothing**:
-applying the default could disable a policy or stop it enforcing, and ignoring it would
-report in sync with a policy that is not what the file reads as. `export` writes all
-three, so this comes up only in hand-written files. A policy's type cannot change: a file
-stating another type fails, and changes nothing.
-
-**`excludeApplicationScopes` is not offered**, on either kind, and a file naming it is
-refused. If Aqua holds one anyway, an update sends it back as it is, since clearing it could
-put a scope back under a policy that someone had kept off it. `plan`, `apply` and `export`
-name it in a warning, which never changes the exit code. A deleted policy's exclusions go
-with it, and a rename is a delete and a create, so the warning says that too. The reasons
-are in [Not offered](schema-reference.md#not-offered).
-
-**The file is the whole policy.** A control the YAML leaves out is off, as on a
-new policy, where Aqua starts every control off (verified live). So the same
-file gives the same policy whether it creates the object or updates it, and a
-control switched on only in the console shows up in `plan` as drift and is
-switched off. Removing a control from the YAML switches it off; `plan` shows
-`true -> false`, so a review sees it.
-
-Two levels:
-
-- **A control left out:** only its switch goes off. Its settings stay as Aqua
-  has them: under an off switch they do nothing, and the console writes its own
-  defaults into them on every save (a 365-day outdated-images threshold, the
-  malware forensics options on). Managing them would report drift after every
-  console save, for settings with no effect.
-- **A control in the YAML** is the whole of that control: a setting it leaves
-  out is off -- `false`, an empty list, `0`, `""`, as on a new policy. A Port
-  Block with only inbound ports blocks no outbound ones.
-
-This replaced an earlier rule, "a field removed from the YAML stops being
-managed and keeps its value". It needed state to tell a removed field from one
-never written; without state it meant the repository described only part of
-each policy, and a control enabled in the console was invisible to `plan`.
-
-On an assurance policy the same goes for its **actions** and **exceptions**: removing
-them from the file removes them.
-
-Left as Aqua has them, because they are not controls or not covered:
-
-- the description, when the YAML leaves it out (the marker is still added);
-- **Bypass Scope** -- scope, not a control, and on by default on the default
-  container policy, exempting Aqua's own components;
-- **Additional Scope Criteria**: Aqua fills in its own when a policy is created
-  without them (`container.name` is `*`), so having none is not a state the file can
-  ask for. To widen a policy again, write that criterion;
-- settings the tool does not offer, each with its reason in
-  [schema-reference.md](schema-reference.md#not-offered);
-- a control this Aqua version does not have: nothing to switch off, and writing
-  it would never converge.
-
-`export` follows the same rule: it writes only the controls that are on, so an
-exported file reads as what the policy does. A control that is off is left out
-whole, settings included; applying the export leaves them as they are.
-
-Updates always send the **complete** object with only our fields changed. Aqua's
-update is a full replace (verified live): a partial body resets every field it
-leaves out.
-
-**Then it reads the object back.** Aqua answers success for a field it does not
-know and drops it, and which fields exist depends on the version:
-`block_outdated_images` arrived in 2022.4 Update 47, for instance. So after each write
-`apply` compares what it sent with what Aqua now holds. A field not kept is reported
-as `not kept by Aqua`, with both values, and fails the run: the policy is not what the
-file says, and saying so beats a plan that silently never settles.
-
-### What each run does
+## What a run changes
 
 | Situation | Result |
 |---|---|
-| In Git, missing in Aqua | **Created.** Also how an object deleted in the console is put back — that is the guardrail working. |
-| In Aqua without a marker | **Adopted**: the marker is added, plus any drift. The first apply after `export` reports only adoptions. |
-| Ours, and it drifted | **Updated.** |
-| Marked by *another* instance | **Blocked** and reported. Two instances must never manage one object. |
-| `spec.enforcement: ReportOnly` | Drift and missing objects are reported; nothing is written. |
+| In Git, missing in Aqua | **Created.** This is also how a policy deleted in the console comes back. |
+| In Aqua without a marker | **Adopted**: the marker is added, plus any differences. |
+| Ours, and it differs from Git | **Updated.** |
+| Ours, with no file | **Deleted**: see [Deletion](#deletion). |
+| `spec.enforcement: ReportOnly` | Differences and missing policies are reported, and nothing is written. |
 
----
+**The file is the whole policy.** A control the file leaves out is off, so one switched on only in the console shows in `plan` and gets switched off. The same goes for an assurance policy's actions and exceptions.
 
-## Deletion: GitOps semantics
+- **A control left out:** only its switch goes off. Its settings stay as Aqua has them, because the console rewrites them on every save and they do nothing under an off switch.
+- **A control in the file** is the whole of that control. A Port Block with only inbound ports blocks no outbound ones.
 
-> **Departure from an earlier design.** The brief required deletion to be
-> opted into twice — `spec.deletionPolicy: Delete` on the resource *and*
-> `--allow-delete` on the run. Neither exists. **Removing a file from Git
-> deletes the object on the next apply**, the same as Argo CD with pruning on.
+**Left as Aqua has them:**
 
-**Why.** It is what Git-as-the-source-of-truth means, and what anyone using
-Argo CD already expects. A per-resource opt-in also has a structural problem in
-a stateless tool: once the file is deleted, nothing records whether that
-resource had opted in.
+- the description, if the file leaves it out;
+- Bypass Scope, which exempts Aqua's own components on the default container policy;
+- Additional Scope Criteria, because Aqua fills in its own when there are none;
+- a control your Aqua version does not have;
+- settings the tool [does not offer](schema-reference.md#not-offered). If a policy holds `excludeApplicationScopes`, `plan`, `apply` and `export` warn, without changing the exit code. Deleting or renaming that policy loses it.
 
-**The opt-out is per run:** `--no-delete`. Orphans are then reported as
-"orphaned, not deleted (--no-delete)" and never deleted — for runs that must
-never delete, such as a first rollout or a read-mostly pipeline. Under
-`--detailed-exitcode` a held-back orphan counts as pending (exit 2).
+**Three fields have defaults.** Left out, a new runtime policy is `enabled: true`, `enforce: false` and `runtimeType: container`. On an existing policy, a left-out field whose default differs from Aqua **fails the run and changes nothing**, since applying the default could disable a policy or stop it enforcing. `export` writes all three, so this only comes up in hand-written files. A policy's type cannot change either.
 
-One to know about: **a policy duplicated in the console carries the marker with its
-description**. No file describes the copy, so the next apply deletes it. Remove the
-marker line from the copy's description.
+**Updates send the whole object**, with only these fields changed, because Aqua's update is a full replace.
 
-**Guardrails that stay:**
+**Then it reads the policy back.** Aqua answers success for a field it does not know and drops it, and fields vary by version. A field it did not keep is reported as `not kept by Aqua` and fails the run.
 
-- Only objects carrying **this instance's** marker are ever deleted — never
-  another instance's, never an unmarked console object.
-- **Aqua-shipped policies are never deleted.** They are reported and kept.
-- `plan` lists every pending deletion.
-- Within one apply, **all creates and updates run before any delete**, so a
-  Git-side rename never leaves a moment with neither policy in place.
-- **A kind with no files in the run has nothing deleted**, unless `--allow-empty`
-  is given. An empty config directory — a wrong path, a ConfigMap that did not
-  mount — is far more likely a mistake than an instruction to delete everything,
-  and so is a folder of runtime policies when the instance also owns assurance ones.
-  Argo CD's automated sync has the same default (`allowEmpty: false`).
-- **Nothing of a kind is deleted while another file of that kind did not land**, by
-  failing, being blocked, or being `ReportOnly` and new. The orphan may be what it
-  replaces: a failed rename must not leave neither. The next run that lands finishes
-  the job.
-- **`-f` with a single file deletes nothing**: the rest of the configuration has no
-  file in that run, and that says nothing about it.
-- **`export` fails if it leaves an object out** because it does not fit the schema:
-  with no file, an apply of that folder would delete the object if this instance owns it.
+## Deletion
 
----
+**Removing a file deletes the policy on the next apply**, as Argo CD does with pruning on. `plan` lists every pending deletion, and `--no-delete` holds them back for a run.
+
+Nothing is deleted when:
+
+- it does not carry **this instance's** marker;
+- **Aqua ships it**;
+- **the run has no files of that kind**, unless you pass `--allow-empty`, because an empty folder is more likely a wrong path than an instruction;
+- **another file of that kind did not land**, because the orphan may be what it replaces;
+- **`-f` was given a single file**, since that says nothing about the rest.
+
+Creates and updates run before deletes, so a rename never leaves you with neither policy. `export` fails if it leaves out a policy that does not fit the schema, because with no file, an apply of that folder could delete it.
 
 ## Leaving: release and hand-over
 
-Deleting the files deletes the objects, so it cannot be the way to *stop
-managing* them. `--no-delete` is not either: the objects keep the marker, and
-the first run without the flag deletes them.
-
-`release` removes this instance's marker and changes nothing else. The objects
-carry on exactly as they are, unmanaged. `--to <instance>` rewrites the marker
-instead, moving the objects to another instance (another team or repository, or
-a renamed instance) without an unmanaged moment in between.
-
-**For a hand-over, put the files in the receiving configuration first.** Its runs report
-the objects as blocked until the hand-over, which is harmless. Without the files, its
-next apply deletes them: they carry its marker, and no file describes them.
+Removing the files deletes the policies, so that is not how to stop managing them.
 
 ```
-  aquasec-casc release --dry-run            what would be released
-  aquasec-casc release [--name 'prod-*']    remove the marker
-  aquasec-casc release --to team-b          hand over to another instance
+aquasec-casc release --dry-run            what would be released
+aquasec-casc release [--name 'prod-*']    remove the marker
+aquasec-casc release --to team-b          hand over to another instance
 ```
 
-- **It needs no YAML.** Objects are found by this instance's marker, so it still
-  works after the repository is gone. The instance name comes from the usual
-  place (`--instance`, `$AQUASEC_CASC_INSTANCE`, or `aquasec-casc.yaml`).
-- **Only the description is written**, and in it only the marker line. The
-  whole object is re-read just before the write, because update is a full
-  replace; one that changed owner in the meantime is left alone.
-- **It is reversible.** `export` and `apply` adopt the objects again.
-- **Order matters: release first, then remove the files or stop the pipeline.**
-  While both remain, the next apply adopts the objects again, and then removing the
-  files deletes them. After a hand-over, the old instance's runs report the objects as
-  blocked until its files go.
-- On runtime policies the API rewrites `author` on every edit, so released
-  policies still show the tool's identity as author.
+- **Only the marker line changes.** It needs no YAML, and `export` and `apply` adopt the policies again.
+- **Release first, then remove the files.** While both remain, the next apply adopts the policies again, and then removing the files deletes them.
+- **For a hand-over, put the files in the receiving configuration first.** Without them, its next apply deletes the policies.
+- **On runtime policies, `author` stays as the tool's identity**, because the API rewrites it on every edit.
 
-**`destroy` is the other way out**, for when the objects should go too:
-`destroy -f DIR` deletes what those files describe, plain `destroy` everything
-carrying this instance's marker. The same ownership rule applies -- an object
-without this instance's marker is reported as blocked, never deleted -- and a
-policy Aqua ships, which cannot be deleted, is released instead. It shows the
-plan and asks for the instance name to be typed (`--yes` for scripts), because
-it is the one command that deletes without a change in Git.
+**`destroy` is for when the policies should go too.** `destroy -f DIR` deletes what those files describe, and plain `destroy` deletes everything carrying this instance's marker. It shows the plan and asks you to type the instance name, or `--yes` for scripts. An object without this instance's marker is blocked, and a policy Aqua ships is released instead.
 
----
+## Aqua's own policies
 
-## Built-in policies
+Aqua ships about 18 runtime policies, and a Default and others for each assurance type.
 
-Aqua ships policies of its own: about 18 runtime policies, and a Default and others for
-each assurance type. Verified on a live tenant:
+- **They cannot be deleted**, and the tool never tries. Otherwise they are managed like any policy.
+- **Their controls can change, and mostly their scope too.** The three runtime defaults and the predefined assurance policies lock their scope, so that change is reported as not allowed and the rest still applies.
+- **Bypass Scope exists only on the default container and host policies.** Anywhere else it is reported as not allowed and not sent.
 
-- **They cannot be deleted.** Aqua refuses: "Action forbidden: runtime policy is
-  a system policy". The tool never tries; an orphaned one is reported and kept.
-- **Their controls can change. Their scope can too -- except on the three runtime
-  defaults** ("Aqua default runtime / host runtime / function runtime policy"),
-  where Aqua refuses: "can't change application scope for default policies". Aqua's
-  docs say the same of its predefined assurance policies.
-- **No field identifies them everywhere.** `is_ootb_policy` is true on them through the
-  API, and false on every one in a console export, so it is not a thing to rely on in
-  every version. Assurance policies have no flag, and a runtime policy's `author` does not
-  survive an edit: an API edit rewrites it to the editing identity.
+## Names
 
-So **the registry lists them by name** and also honours the flag and `author:
-system`. A custom policy that takes one of those names is treated as Aqua's: the
-worst that does is that the tool will not delete it.
-
-- **Bypass Scope exists only on the default container and host policies**, as in
-  the console (`controls.bypassScope`). The default container policy ships with
-  it on, exempting Aqua's own components, `kube-system` and pod sandboxes.
-  Setting it anywhere else is reported as not allowed and not sent; `export`
-  writes it only for those two, so adopting a default keeps its exemptions.
-
-So built-ins are **adopt-only**: never deleted by the tool, otherwise managed like any
-policy, marker included. (A file naming one this tenant does not have creates an
-ordinary policy of that name.) `export` includes them -- the default
-policy is usually the first one a customer changes. A scope change on a locked one is
-reported as not allowed and not sent; the rest of the change still applies.
-
----
-
-## Identity
-
-Aqua keys policy and enforcer-group endpoints by **name in the URL**, not by a
-numeric ID, and has no rename operation. `metadata.name` must be a DNS-1123
-name, which Aqua names often are not ("Aqua default runtime policy"), so
-`spec.aquaName` carries the real name when they differ:
+Aqua addresses policies by name and has no rename. `metadata.name` must be a DNS-style name, which Aqua's names often are not, so `spec.aquaName` holds the real one when they differ. `export` sets both.
 
 ```
-  metadata.name   aqua-default-runtime-policy     ← file-safe, CRD-safe
-  spec.aquaName   Aqua default runtime policy     ← what Aqua calls it
+metadata.name   aqua-default-runtime-policy
+spec.aquaName   Aqua default runtime policy
 ```
 
-`export` sets both automatically.
-
-Assurance policies are addressed by type and name
-(`/assurance_policy/{type}/{name}`), since each type has its own "Default". So their
-key is `image/Default`, what `plan` shows in brackets and `--name` also matches, and
-`export` writes `metadata.name: image-default`. Changing `spec.assuranceType` in Git
-describes a different object: the new one is created, and the old one deleted.
-
----
+Assurance policies are addressed by type and name, such as `image/Default`, which exports as `metadata.name: image-default`. Changing `assuranceType` describes a different policy: the new one is created, and the old one deleted.
 
 ## Safety defaults
 
-- **Unknown fields are rejected**, not ignored. Aqua ignores unknown fields on
-  write, so a typo'd control would otherwise return HTTP 200 and change nothing.
-- **`applicationScopes` is required.** Aqua applies a policy with no scopes to
-  Global — every workload. Write `["Global"]` if that is what you mean.
-- **TLS verification is on**, including for sign-in. `AQUA_CA_BUNDLE` for an
-  internal CA; `AQUA_TLS_INSECURE=true` is a visible, deliberate escape hatch.
-- **No credential reaches output.** Errors, `repr`s and verbose output are
-  redacted; the tool refuses to manage credential-bearing fields.
-- **A write is checked.** Each object is read back, and a field Aqua did not keep
-  fails the run.
-- **A control a type does not offer is refused** at `validate`: Aqua would store a
-  CIS benchmark on an image policy, where it does nothing.
-
----
+- **Unknown fields are refused**, since Aqua would accept a mistyped control and change nothing.
+- **`applicationScopes` is required**, since Aqua applies a policy with none to every workload.
+- **A control its type does not offer is refused.** Aqua would store a CIS benchmark on an image policy, where it does nothing.
+- **TLS is verified**, sign-in included.
+- **No credential reaches output**, and the tool refuses to manage credential fields.
 
 ## Exit codes
 
 ```
-  validate   0 valid      1 invalid
-  plan       0 success    1 error     2 changes pending (incl. deletions) -- only
-                                        with --detailed-exitcode
-  apply      0 done       1 error     2 something left pending -- only with
-                                        --detailed-exitcode
-  export     0 done       1 error
-  release    0 done       1 error       (also 0 when there is nothing to release)
-  destroy    0 done       1 error, or not confirmed
+validate   0 valid      1 invalid
+plan       0 success    1 error     2 changes pending, with --detailed-exitcode
+apply      0 done       1 error     2 something left pending, with --detailed-exitcode
+export     0 done       1 error
+release    0 done       1 error
+destroy    0 done       1 error, or not confirmed
 ```
 
-A field Aqua did not keep counts as an error. `apply` exits 0 on success by default because Argo CD fails a sync on any
-non-zero hook exit: a routine apply that leaves, say, a held-back orphan must
-not block every future sync. `--detailed-exitcode` is for pipelines that want
-to gate on it, following `terraform plan -detailed-exitcode`.
+`apply` exits 0 by default because Argo CD fails a sync on any non-zero exit, and a routine apply that holds back an orphan must not block every future sync.
