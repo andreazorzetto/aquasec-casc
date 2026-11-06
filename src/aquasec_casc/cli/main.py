@@ -435,8 +435,9 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
             out.line(f"+ {CONFIG_FILE}  (instance: {instance})", "green")
         out.line(f"{len(result.exported)} exported, {len(result.skipped)} skipped -> {target}", "bold")
         if result.exported and not result.skipped_for_schema():
+            also = " and switches off what is listed above" if any(e.left_out for e in result.exported) else ""
             out.line(f"Next: commit, then '{NAME} apply -f {target}'. The first apply only adds "
-                     "the ownership marker.", "dim")
+                     f"the ownership marker{also}.", "dim")
     with_no_file = [key for key in result.left_outside if key not in _keys_in(target)]
     if with_no_file:
         out.notes.line(f"warning: {len(with_no_file)} object(s) this instance manages are "
@@ -580,8 +581,11 @@ def cmd_schema(args, out: Out, connect: Callable) -> int:
 
 
 def cmd_setup(args, out: Out, connect: Callable) -> int:
-    from ..client import profiles
-    return 0 if profiles.setup(args.name) else 1
+    from ..client import ConfigError, profiles
+    try:
+        return 0 if profiles.setup(args.name) else 1
+    except ConfigError as exc:
+        raise UsageError(str(exc)) from exc
 
 
 def _profile_lines(info: dict) -> list[str]:
@@ -805,8 +809,13 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None,
     except ClientError as exc:
         err.line(f"error: {exc}", "red")
         return 1
+    except BrokenPipeError:
+        # Whatever reads the output went away. An apply may already have written to Aqua.
+        err.line("error: the output was closed before the command finished; run plan to see where Aqua stands", "red")
+        return 1
     except OSError as exc:  # saved profiles, in a read-only image for one
-        err.line(f"error: cannot use {exc.filename or 'a file'}: {exc.strerror or type(exc).__name__}", "red")
+        where = f"cannot use {exc.filename}: " if exc.filename else ""
+        err.line(f"error: {where}{exc.strerror or type(exc).__name__}", "red")
         return 1
 
 

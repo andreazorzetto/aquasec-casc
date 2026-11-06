@@ -298,6 +298,7 @@ ONLY_ON: dict[str, frozenset[AssuranceType]] = {
     "controls.microEnforcer": _IMAGES,
     "controls.osPackageManager": _IMAGES,
     "controls.superuser": _IMAGES,
+    "controls.autoScan": _SCANNED,
     "controls.cisBenchmarkForDocker": _HOST,
     "controls.cisBenchmarkForKubernetes": _HOST,
     "controls.cisBenchmarkForLinux": _HOST,
@@ -432,6 +433,9 @@ class AssurancePolicySpec(ManagedSpec):
         ),
     )
     excludeApplicationScopes: list[str] | None = None
+    """Scopes left out of a policy on Global alone. Not on kubernetes. Aqua keeps this only
+    with its application scope improvements on: otherwise it drops it, and ``apply`` fails
+    saying so."""
     additionalScopeCriteria: AdditionalScopeCriteria | None = None
 
     actions: Actions = Field(default_factory=Actions)
@@ -447,6 +451,8 @@ class AssurancePolicySpec(ManagedSpec):
             if on and self.assuranceType not in types:
                 names = " and ".join(sorted(t.value for t in types))
                 raise ValueError(f"{path} is only available on {names} policies.")
+        if self.excludeApplicationScopes and self.assuranceType is _T.KUBERNETES:
+            raise ValueError("excludeApplicationScopes is not available on kubernetes policies.")
         return self
 
 

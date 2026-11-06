@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 base=$(sed -n 's/^ARG BASE_IMAGE=//p' Dockerfile)
 exec docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -v "$PWD:/repo" -w /repo "$base" sh -c '
-python -m pip install -q --user --no-warn-script-location pip-tools
+set -eu
+python -m pip install -q --user --no-warn-script-location pip-tools==7.6.2
 python - > /tmp/in.txt <<PY
 import tomllib
 p = tomllib.load(open("pyproject.toml", "rb"))

@@ -11,6 +11,10 @@ For each control on each type that offers it, one throwaway policy goes through:
   that differs from Aqua, a failure that changes nothing)
   added back by update -> stored as written, and plan is clean
 
+Then what says what a policy is, not what it does: enabled, description, scopes, additional
+scope criteria, type. ``bypassScope`` needs Aqua's default policies, so it runs only with
+``AQUASEC_CASC_LIVE_DEFAULTS=1``, on a tenant of your own.
+
 Safe on a shared tenant: container and host runtime policies are disabled. Function
 runtime policies and assurance policies have no such switch, so those are scoped to
 names that match nothing. Names start with ``aquasec-casc-live-`` and every policy is
@@ -77,7 +81,8 @@ def _run(client, kind_def, doc, dry_run=False):
     resource, _ = load_document(doc, "test")
     options = Options(instance=INSTANCE, dry_run=dry_run, kinds=(kind_def,))
     summary = reconcile_all([resource], client, options)
-    return [r for r in summary.results if r.name == doc["metadata"]["name"]][0], kind_def.key(resource)
+    names = (doc["metadata"]["name"], doc["spec"].get("aquaName"))
+    return [r for r in summary.results if r.name in names][0], kind_def.key(resource)
 
 
 def _clean(client, kind_def, doc, step):
@@ -149,26 +154,30 @@ def test_control(client, kind, type_, path, value):
     assert exercise(client, kind, type_, path, value) == []
 
 
-def test_approved_base_image(client):
-    """Aqua refuses a base image it does not know, so this takes one it does."""
+@pytest.mark.parametrize("type_", ["image", "cf_application"])
+def test_approved_base_image(client, type_):
+    """Aqua refuses a base image it does not know, or has not finished scanning, so this
+    takes one it has."""
     from aquasec.common import _request_with_retry
 
     res = _request_with_retry("GET", f"{client.server}/api/v2/images", client.token,
-                              params={"page": 1, "pagesize": 1}, timeout=120)    # slow on a big tenant
-    images = res.json().get("result") or []
+                              params={"page": 1, "pagesize": 200}, timeout=120)    # slow on a big tenant
+    images = [i for i in res.json().get("result") or [] if i.get("scan_status") == "finished"]
     if not images:
-        pytest.skip("no image is registered on this tenant")
+        pytest.skip("no scanned image in the first 200 on this tenant")
     value = {"images": [{"registry": images[0]["registry"], "image": images[0]["name"]}]}
-    assert exercise(client, "AssurancePolicy", "image", "controls.approvedBaseImage", value) == []
+    assert exercise(client, "AssurancePolicy", type_, "controls.approvedBaseImage", value) == []
 
 
 @pytest.mark.parametrize("type_,engines,wanted_type", [("image", ("rego", "ab", "sh"), "Image"),
+                                                       ("cf_application", ("rego", "ab", "sh"), "Image"),
                                                        ("host", ("yaml",), "Host")])
 def test_custom_compliance_checks(client, type_, engines, wanted_type):
     """Scripts are the tenant's, so this takes one it has."""
     from aquasec.common import _request_with_retry
 
-    res = _request_with_retry("GET", f"{client.server}/api/v2/assurance_policy/{type_}/user_scripts",
+    listed = "image" if type_ == "cf_application" else type_
+    res = _request_with_retry("GET", f"{client.server}/api/v2/assurance_policy/{listed}/user_scripts",
                               client.token, timeout=client.timeout)
     scripts = sorted((s for s in res.json() or [] if s.get("engine") in engines and s.get("type") == wanted_type),
                      key=lambda s: engines.index(s["engine"]))
@@ -176,3 +185,190 @@ def test_custom_compliance_checks(client, type_, engines, wanted_type):
         pytest.skip(f"no {wanted_type} script on this tenant")
     value = {"scripts": [{"name": scripts[0]["name"]}]}
     assert exercise(client, "AssurancePolicy", type_, "controls.customComplianceChecks", value) == []
+
+
+# --------------------------------------------------------------------------- #
+# What says what a policy is, not what it does
+# --------------------------------------------------------------------------- #
+
+#: Not cf_application: no scope attribute for it is documented, so the scope of our own
+#: below does not cover it.
+SCOPED_TYPES = [("RuntimePolicy", t) for t in ("container", "host", "function")] + [
+    ("AssurancePolicy", t) for t in ("image", "host", "function", "kubernetes")]
+
+
+def _throwaway():
+    return f"aquasec-casc-live-{TAG}-{secrets.token_hex(3)}"
+
+
+@pytest.fixture(scope="module")
+def second_scope(client):
+    """A scope of our own that covers nothing, deleted at the end."""
+    from aquasec.common import _request_with_retry
+
+    def nothing(attribute):
+        return {"expression": "v1", "variables": [{"attribute": attribute, "value": f"casc-no-such-{TAG}"}]}
+
+    name = f"aquasec-casc-live-{TAG}"
+    url = f"{client.server}/api/v2/access_management/scopes"
+    res = _request_with_retry("POST", url, client.token, timeout=client.timeout, json={
+        "name": name, "description": "aquasec-casc live test, safe to delete",
+        "categories": {
+            "artifacts": {"image": nothing("image.repo"), "function": nothing("aqua.serverless_project")},
+            "workloads": {"kubernetes": nothing("kubernetes.namespace"), "os": nothing("aqua.host")},
+            "infrastructure": {"kubernetes": nothing("kubernetes.cluster"), "os": nothing("aqua.hostgroup")}}})
+    if res.status_code >= 400:
+        pytest.skip(f"cannot create a scope here: HTTP {res.status_code} {res.text[:200]}")
+    yield name
+    _request_with_retry("DELETE", f"{url}/{name}", client.token, timeout=client.timeout)
+
+
+def _step(client, kind_def, doc, step) -> list[str]:
+    """Apply it: it must be kept, and the plan after must be clean."""
+    r, _ = _run(client, kind_def, doc)
+    problems = [] if r.outcome in (Outcome.CREATED, Outcome.UPDATED, Outcome.IN_SYNC) and not r.not_kept \
+        else [f"{step}: {r.outcome.value} {r.message} {r.not_kept}"]
+    return problems + _clean(client, kind_def, doc, step)
+
+
+@pytest.mark.parametrize("kind,type_", SCOPED_TYPES)
+def test_application_scopes_can_change(client, second_scope, kind, type_):
+    kind_def = registry.get(kind)
+    base = _base(kind, type_, _throwaway())
+    moved = _with(base, "applicationScopes", [second_scope])
+    key = None
+    try:
+        _, key = _run(client, kind_def, base)
+        assert _step(client, kind_def, moved, "moved") == []
+        assert client.get(kind_def, key)["application_scopes"] == [second_scope]
+        assert _step(client, kind_def, base, "moved back") == []
+        assert client.get(kind_def, key)["application_scopes"] == ["Global"]
+    finally:
+        if key:
+            client.delete(kind_def, key)
+
+
+@pytest.mark.parametrize("type_", ["container", "host", "function"])
+def test_exclude_application_scopes_on_a_runtime_policy(client, second_scope, type_):
+    assert exercise(client, "RuntimePolicy", type_, "excludeApplicationScopes", [second_scope]) == []
+
+
+@pytest.mark.parametrize("type_", ["image", "host", "function"])
+def test_exclude_application_scopes_on_an_assurance_policy(client, second_scope, type_):
+    """Aqua keeps it only with a feature of its own on. Without it, apply has to say so."""
+    problems = exercise(client, "AssurancePolicy", type_, "excludeApplicationScopes", [second_scope])
+    if len(problems) == 1 and "exclude_application_scopes: sent" in problems[0] and "Aqua holds []" in problems[0]:
+        pytest.skip("Aqua does not keep it on this tenant, and read-back reported that")
+    assert problems == []
+
+
+@pytest.mark.parametrize("type_", ["container", "host"])
+def test_enabled_both_ways(client, type_):
+    """On for a moment, on a policy with no controls, scoped to what does not exist."""
+    kind_def = registry.get("RuntimePolicy")
+    attribute = "image.name" if type_ == "container" else "os.hostname"
+    base = _base("RuntimePolicy", type_, _throwaway())
+    base["spec"]["additionalScopeCriteria"] = {"expression": "v1", "variables": [
+        {"attribute": attribute, "value": f"casc-no-such-{TAG}"}]}
+    on = _with(base, "enabled", True)
+    key = None
+    try:
+        _, key = _run(client, kind_def, on)
+        assert client.get(kind_def, key)["enabled"] is True
+        assert _clean(client, kind_def, on, "on") == []
+        assert _step(client, kind_def, base, "off") == []
+        assert client.get(kind_def, key)["enabled"] is False
+
+        # Left out, it means on. That must not switch a policy on: it fails, and changes nothing.
+        unstated = copy.deepcopy(on)
+        del unstated["spec"]["enabled"]
+        r, _ = _run(client, kind_def, unstated)
+        assert r.reason == "Unstated"
+        assert client.get(kind_def, key)["enabled"] is False
+
+        assert _step(client, kind_def, on, "on again") == []
+        assert client.get(kind_def, key)["enabled"] is True
+    finally:
+        if key:
+            client.delete(kind_def, key)
+
+
+@pytest.mark.parametrize("kind,type_", [("RuntimePolicy", "container"), ("AssurancePolicy", "image")])
+def test_description_can_change_and_the_marker_stays(client, kind, type_):
+    kind_def = registry.get(kind)
+    base = _base(kind, type_, _throwaway())
+    changed = _with(base, "description", "aquasec-casc live test, changed, safe to delete")
+    key = None
+    try:
+        _, key = _run(client, kind_def, base)
+        assert _step(client, kind_def, changed, "changed") == []
+        stored = client.get(kind_def, key)["description"]
+        assert "changed, safe to delete" in stored and INSTANCE in stored
+    finally:
+        if key:
+            client.delete(kind_def, key)
+
+
+@pytest.mark.parametrize("kind,type_", [("RuntimePolicy", "function"),
+                                        *[("AssurancePolicy", t) for t in
+                                          ("image", "host", "function", "kubernetes", "cf_application")]])
+def test_additional_scope_criteria_change_and_leaving_them_out_keeps_them(client, kind, type_):
+    kind_def = registry.get(kind)
+    base = _base(kind, type_, _throwaway())
+    other = _with(base, "additionalScopeCriteria.variables", [
+        {"attribute": NOTHING[type_], "value": f"casc-no-such-either-{TAG}"}])
+    left_out = copy.deepcopy(base)
+    del left_out["spec"]["additionalScopeCriteria"]
+    key = None
+    try:
+        _, key = _run(client, kind_def, base)
+        assert _step(client, kind_def, other, "changed") == []
+        kept = client.get(kind_def, key)["scope"]
+        assert f"casc-no-such-either-{TAG}" in str(kept)
+        assert _step(client, kind_def, left_out, "left out") == []
+        assert client.get(kind_def, key)["scope"] == kept
+    finally:
+        if key:
+            client.delete(kind_def, key)
+
+
+def test_a_runtime_policy_cannot_change_type(client):
+    kind_def = registry.get("RuntimePolicy")
+    base = _base("RuntimePolicy", "container", _throwaway())
+    key = None
+    try:
+        _, key = _run(client, kind_def, base)
+        r, _ = _run(client, kind_def, _with(base, "runtimeType", "host"))
+        assert r.reason == "Immutable"
+        assert client.get(kind_def, key)["runtime_type"] == "container"
+    finally:
+        if key:
+            client.delete(kind_def, key)
+
+
+@pytest.mark.skipif(os.environ.get("AQUASEC_CASC_LIVE_DEFAULTS") != "1",
+                    reason="edits Aqua's default policies for a moment: set AQUASEC_CASC_LIVE_DEFAULTS=1, "
+                           "and only on a tenant of your own")
+@pytest.mark.parametrize("name", ["Aqua default runtime policy", "Aqua default host runtime policy"])
+def test_bypass_scope_on_a_default_policy(client, name):
+    """Only the default container and host policies have it, so a throwaway cannot."""
+    kind_def = registry.get("RuntimePolicy")
+    before = client.get(kind_def, name)
+    scope = before["application_scopes"][0]
+    exported = export_kind(client, kind_def, instance=INSTANCE, scope=scope, names=[name])
+    assert exported.exported, exported.skipped
+    doc = exported.exported[0].document
+    changed = _with(doc, "controls.bypassScope", {"expression": "v1", "variables": [
+        {"attribute": "image.name", "value": f"casc-no-such-{TAG}"}]})
+    try:
+        assert _run(client, kind_def, doc)[0].outcome is Outcome.ADOPTED
+        assert _step(client, kind_def, changed, "changed") == []
+        assert f"casc-no-such-{TAG}" in str(client.get(kind_def, name)["bypass_scope"])
+        assert _step(client, kind_def, doc, "put back") == []
+        assert client.get(kind_def, name)["bypass_scope"]["enabled"] == before["bypass_scope"]["enabled"]
+    finally:
+        client.update(kind_def, name, before)
+    after = client.get(kind_def, name)
+    volatile = {"lastupdate", "author", "updated", "last_update"}
+    assert {k: v for k, v in after.items() if k not in volatile} == \
+        {k: v for k, v in before.items() if k not in volatile}

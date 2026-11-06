@@ -133,7 +133,7 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
     "controls.permissionsBlocked": ({"permissions": ["s3:GetObject"]}, (FUNCTION,)),
     "controls.kubernetesControls": (["Privileged", "Access to host network"], (KUBERNETES,)),
     "controls.autoScan": ({"iterationType": "daily", "iteration": 1, "time": "2030-01-01T00:00:00Z",
-                           "weekDays": []}, (IMAGE, HOST, FUNCTION)),
+                           "weekDays": []}, _ALL),
 }
 
 #: Needs something registered on the tenant: built at run time by the live test.

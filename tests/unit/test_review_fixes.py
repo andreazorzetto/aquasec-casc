@@ -603,3 +603,62 @@ def test_the_lock_holds_every_pin():
     lock = (root / "requirements.lock").read_text().lower()
     for pin in [*project["project"]["dependencies"], *project["build-system"]["requires"]]:
         assert f"{pin.lower().replace('_', '-')} \\" in lock, pin
+
+
+def test_a_closed_output_says_so_and_not_that_a_file_failed(tmp_path):
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec: {applicationScopes: [Global]}
+        """))
+
+    class Closed(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    err = io.StringIO()
+    code = main(["plan", "-f", str(tmp_path), "--instance", "x"], stdout=Closed(), stderr=err,
+                connect=lambda profile: FakeAqua({}))
+    assert code == 1
+    assert "output was closed" in err.getvalue() and "cannot use" not in err.getvalue()
+
+
+def test_an_oserror_with_no_file_does_not_blame_a_file(tmp_path):
+    def fails(profile):
+        raise OSError("out of something")
+
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec: {applicationScopes: [Global]}
+        """))
+    err = io.StringIO()
+    assert main(["plan", "-f", str(tmp_path), "--instance", "x"], stdout=io.StringIO(), stderr=err, connect=fails) == 1
+    assert "cannot use" not in err.getvalue() and "OSError" in err.getvalue()
+
+
+def test_a_bad_setting_at_setup_is_an_error_and_not_a_traceback(monkeypatch):
+    monkeypatch.setenv("AQUA_TIMEOUT", "abc")
+    err = io.StringIO()
+    assert main(["setup", "x"], stdout=io.StringIO(), stderr=err) == 1
+    assert "AQUA_TIMEOUT" in err.getvalue()
+
+
+def test_export_says_when_the_first_apply_does_more_than_add_the_marker(tmp_path):
+    aqua = FakeAqua({"cf_application/t": stored("t", "cf_application", description="", exploitability_and_severity={
+        "enabled": True, "severity": "high", "disallow_exploit_types": ["dos"]})})
+    code, out, _ = run(["export", "--scope", "Global", "--kind", "AssurancePolicy", "-o", str(tmp_path),
+                        "--instance", "x"], aqua)
+    assert code == 0
+    assert "does nothing on this type" in out and "switches off what is listed above" in out
+
+
+def test_exclusions_and_auto_scan_are_refused_on_kubernetes():
+    with pytest.raises(SchemaError, match="excludeApplicationScopes"):
+        load_document(assurance_doc(type_="kubernetes", excludeApplicationScopes=["x"]), "t.yaml")
+    with pytest.raises(SchemaError, match="autoScan"):
+        load_document(assurance_doc(type_="kubernetes", controls={"autoScan": {"iterationType": "daily"}}), "t.yaml")
+    load_document(assurance_doc(excludeApplicationScopes=["x"], controls={"autoScan": {"iterationType": "daily"}}),
+                  "t.yaml")
