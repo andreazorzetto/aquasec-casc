@@ -73,6 +73,8 @@ docker run --rm --read-only -v "$PWD/examples/playground:/config:ro" \
   andreazorzetto/aquasec-casc:0.1.0 plan -f /config
 ```
 
+With an internal CA, add `-v "$PWD/internal-ca.pem:/ca.pem:ro" -e AQUA_CA_BUNDLE=/ca.pem`.
+
 ## Configure
 
 Credentials come from a saved profile or the environment -- never from a file
@@ -134,8 +136,10 @@ Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 wh
 - **A rename is a delete and a create**, because Aqua has no rename. Creates run before
   deletes, and a failed create holds the delete back, so a policy is never left with
   neither.
-- **Field support varies by Aqua version.** A field a version lacks is reported at
-  `apply`, not guessed at. See [what it was tested against](docs/schema-reference.md#tested-against).
+- **Field support varies by Aqua version.** A field a version does not keep is reported at
+  `apply`, not guessed at. A field it keeps but does not act on cannot be seen from the API,
+  so try a new control on your own version first. See
+  [what it was tested against](docs/schema-reference.md#tested-against).
 - **One Aqua instance per run**, and no scheduling of its own.
 
 ## Roadmap

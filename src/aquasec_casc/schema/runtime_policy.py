@@ -161,9 +161,16 @@ class BlockOutdatedImages(Section):
 
     needs = ("ageThreshold", "unit")
 
-    ageThreshold: int | None = None
+    ageThreshold: int | None = Field(default=None, strict=True, ge=0)
     """Age Threshold: how old, in ``unit``."""
     unit: TimeUnit | None = None
+
+    @model_validator(mode="after")
+    def _a_threshold_of_nothing_means_nothing(self):
+        # Off, Aqua holds 0 here on every policy.
+        if self.enabled and self.ageThreshold == 0:
+            raise ValueError("'ageThreshold' must be 1 or more")
+        return self
 
 
 class PortBlock(Section):

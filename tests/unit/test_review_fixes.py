@@ -539,3 +539,67 @@ def test_export_warns_only_of_what_has_no_file_here(tmp_path):
     code, _, err = run(["export", "--scope", "One", "-o", str(tmp_path), "--instance", ME,
                         "--kind", "RuntimePolicy"], aqua)
     assert code == 0 and "deletes them" not in err
+
+
+# --------------------------------------------------------------------------- #
+# Final review
+# --------------------------------------------------------------------------- #
+
+def _outdated(setting):
+    return {"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy",
+            "metadata": {"name": "p"},
+            "spec": {"applicationScopes": ["Global"], "controls": {"blockOutdatedImages": setting}}}
+
+
+@pytest.mark.parametrize("threshold", [True, 0, -3, 1.5, "6"])
+def test_an_age_threshold_is_a_positive_whole_number(threshold):
+    with pytest.raises(SchemaError, match="ageThreshold"):
+        load_document(_outdated({"ageThreshold": threshold, "unit": "months"}), "t.yaml")
+
+
+def test_an_age_threshold_is_written_as_itself():
+    assert load_document(_outdated({"ageThreshold": 6, "unit": "months"}), "t.yaml")
+
+
+def test_an_age_threshold_of_nothing_is_fine_while_off():
+    """Aqua holds 0 there on every policy."""
+    load_document(_outdated({"enabled": False, "ageThreshold": 0, "unit": "months"}), "t.yaml")
+
+
+def test_a_control_that_needs_a_list_needs_something_in_it():
+    with pytest.raises(SchemaError, match="exploitTypes"):
+        load_document(assurance_doc(controls={"vulnerabilityExploitabilityAndSeverity": {
+            "exploitTypes": [], "severity": "high"}}), "t.yaml")
+
+
+def test_exploitability_and_severity_is_for_images_only():
+    controls = {"vulnerabilityExploitabilityAndSeverity": {"exploitTypes": ["dos"], "severity": "high"}}
+    load_document(assurance_doc(controls=controls), "t.yaml")
+    with pytest.raises(SchemaError, match="vulnerabilityExploitabilityAndSeverity"):
+        load_document(assurance_doc(type_="cf_application", controls=controls), "t.yaml")
+
+
+def test_a_file_it_cannot_use_is_an_error_and_not_a_traceback(tmp_path):
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec: {applicationScopes: [Global]}
+        """))
+
+    def read_only(profile):
+        raise OSError(30, "Read-only file system", "/tmp/.aqua")
+
+    out, err = io.StringIO(), io.StringIO()
+    code = main(["plan", "-f", str(tmp_path), "--instance", "x"], stdout=out, stderr=err, connect=read_only)
+    assert code == 1
+    assert "/tmp/.aqua" in err.getvalue() and "Read-only" in err.getvalue()
+
+
+def test_the_lock_holds_every_pin():
+    tomllib = pytest.importorskip("tomllib")
+    root = Path(__file__).parents[2]
+    project = tomllib.loads((root / "pyproject.toml").read_text())
+    lock = (root / "requirements.lock").read_text().lower()
+    for pin in [*project["project"]["dependencies"], *project["build-system"]["requires"]]:
+        assert f"{pin.lower().replace('_', '-')} \\" in lock, pin

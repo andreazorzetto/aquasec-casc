@@ -212,7 +212,8 @@ class VulnerabilityExploitability(Section):
 class VulnerabilityExploitabilityAndSeverity(Section):
     """Fails on a vulnerability with a known exploit of these types, at this severity or
     higher. Field names read from a policy saved in the console: Aqua's spec does not
-    define them, and it stores whatever is sent."""
+    define them, and it stores whatever is sent. On self-hosted, ``CISA`` here needs
+    2022.4.818 or later."""
 
     needs = ("exploitTypes", "severity")
 
@@ -281,7 +282,7 @@ ONLY_ON: dict[str, frozenset[AssuranceType]] = {
     "controls.vulnerabilityScore": _SCANNED,
     "controls.vulnerabilityScoreAndSeverity": _IMAGES,
     "controls.vulnerabilityExploitability": _SCANNED,
-    "controls.vulnerabilityExploitabilityAndSeverity": _IMAGES,
+    "controls.vulnerabilityExploitabilityAndSeverity": frozenset({_T.IMAGE}),
     "controls.cvesBlocked": _SCANNED,
     "controls.sensitiveData": _SCANNED,
     "controls.malware": _CONTENTS,
@@ -397,7 +398,7 @@ NOT_OFFERED: dict[str, str] = {
     "maximum_score_exclude_no_fix": "Aqua stores false whatever is sent; use control_exclude_no_fix",
     "registries": "Aqua stores [] whatever is sent",
     "labels": "Aqua stores [] whatever is sent",
-    "images": "Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, and stores [] whatever is sent",
+    "images": "Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, stores [] whatever is sent, and an update leaves the entries alone (write-tested)",
     "allowed_images": "Images Allowed: as images",
     "scap_files": "SCAP: the console offers it as a scanning setting, not a control of the policy",
     "scap_enabled": "see scap_files",

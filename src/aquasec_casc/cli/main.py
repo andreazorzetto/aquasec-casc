@@ -805,6 +805,9 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None,
     except ClientError as exc:
         err.line(f"error: {exc}", "red")
         return 1
+    except OSError as exc:  # saved profiles, in a read-only image for one
+        err.line(f"error: cannot use {exc.filename or 'a file'}: {exc.strerror or type(exc).__name__}", "red")
+        return 1
 
 
 def run() -> None:

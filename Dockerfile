@@ -15,9 +15,9 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 WORKDIR /src
 COPY requirements.lock pyproject.toml README.md LICENSE ./
 COPY src ./src
-# setuptools and wheel come from the lock too, so nothing is fetched unhashed.
+# setuptools and wheel come from the lock too, and wheels only, so nothing is fetched unhashed.
 RUN python -m venv /opt/aquasec-casc \
-    && /opt/aquasec-casc/bin/pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && /opt/aquasec-casc/bin/pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.lock \
     && /opt/aquasec-casc/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
     && /opt/aquasec-casc/bin/pip uninstall -y -q setuptools wheel pip
 

@@ -38,7 +38,7 @@ class Section(StrictModel):
 
     @model_validator(mode="after")
     def _what_it_needs(self):
-        missing = [n for n in self.needs if getattr(self, n) is None]
+        missing = [n for n in self.needs if getattr(self, n) in (None, [])]
         if self.enabled and missing:
             raise ValueError(f"needs {' and '.join(repr(m) for m in missing)}")
         return self

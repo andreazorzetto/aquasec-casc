@@ -105,7 +105,7 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
     "controls.vulnerabilityExploitability": ({"exploitTypes": ["remote", "dos"]}, _ALL),
     "controls.vulnerabilityExploitabilityAndSeverity": ({
         "exploitTypes": ["remote", "dos", "local", "webapps", "CISA"], "severity": "high",
-        "useCustomSeverity": True}, (IMAGE, TANZU)),
+        "useCustomSeverity": True}, (IMAGE,)),
     "controls.cvesBlocked": ({"cves": ["CVE-2021-44228"]}, _ALL),
     "controls.malware": ({"enableNfsShareScan": True, "scanWindowsRegistryHives": True, "enableInMemoryScan": True,
                           "scanArchives": True, "monitoredPaths": ["/casc-test/"],

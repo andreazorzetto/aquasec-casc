@@ -33,7 +33,7 @@ use, so if you have one already there is nothing to do:
 ```
 $ aquasec-casc profile list
   PROFILE   AUTH       CONSOLE
-* lab       api_keys   https://xxxxxxxxxx.cloud.aquasec.com
+* lab       user_pass  https://xxxxxxxxxx.cloud.aquasec.com
 * default: used when neither --profile nor AQUA_* credentials are given
 
 $ aquasec-casc setup lab          # otherwise: the interactive wizard

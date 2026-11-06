@@ -10,16 +10,22 @@ KIND` prints the same as JSON Schema, for editors and CI.
 
 ## Tested against
 
-`tests/integration/test_every_field.py` puts every field here through create, a re-save,
-export, removal and update, on a live tenant, for each type that offers it.
+`tests/integration/test_every_field.py` puts every control and setting here through create,
+a re-save, export, removal and update, on a live tenant, for each type that offers it.
+`bypassScope`, and the fields that say what the policy is (description, scopes, additional
+scope criteria, type, `enabled`), are tested by the other live tests instead.
 
 | Aqua | |
 |---|---|
-| SaaS | All of it, signing in with a user name and password: 163 cases, and all 61 policies on the tenant export and plan only the marker. |
-| Self-hosted, console 10.8.1 | All of it, signing in at `/api/v1/login`: 163 cases, and all 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+| SaaS | All of it, signing in with a user name and password, and all 61 policies on the tenant export and plan only the marker. |
+| Self-hosted, console 10.8.1 | All of it, signing in at `/api/v1/login`, and all 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
 
 Not tested live: API key sign-in on either, an older self-hosted version (where read-back is what
 reports a field that version lacks), and a CA bundle against a real console (unit tests cover the setting; a throwaway local HTTPS check in review covered the connection).
+
+These tests show what Aqua stores, not that it acts on it. Aqua keeps some fields it does not
+use, so read-back cannot show that a version enforces a control. `vulnerabilityExploitabilityAndSeverity`
+is one: on self-hosted, its `CISA` exploit type needs 2022.4.818 or later.
 
 ## RuntimePolicy
 
@@ -237,7 +243,7 @@ All under `spec`.
 | `controls.vulnerabilityExploitability` | object | | Only on cf_application, function, host, image. |
 | `controls.vulnerabilityExploitability.enabled` | true/false | `vulnerability_exploitability` | The control's switch. |
 | `controls.vulnerabilityExploitability.exploitTypes` | list of `CISA` \| `dos` \| `local` \| `remote` \| `webapps` | `disallow_exploit_types` |  |
-| `controls.vulnerabilityExploitabilityAndSeverity` | object | | Fails on a vulnerability with a known exploit of these types, at this severity or higher. Field names read from a policy saved in the console: Aqua's spec does not define them, and it stores whatever is sent. Only on cf_application, image. |
+| `controls.vulnerabilityExploitabilityAndSeverity` | object | | Fails on a vulnerability with a known exploit of these types, at this severity or higher. Field names read from a policy saved in the console: Aqua's spec does not define them, and it stores whatever is sent. On self-hosted, ``CISA`` here needs 2022.4.818 or later. Only on image. |
 | `controls.vulnerabilityExploitabilityAndSeverity.enabled` | true/false | `exploitability_and_severity.enabled` | The control's switch. |
 | `controls.vulnerabilityExploitabilityAndSeverity.exploitTypes` | list of `CISA` \| `dos` \| `local` \| `remote` \| `webapps` | `exploitability_and_severity.disallow_exploit_types` |  |
 | `controls.vulnerabilityExploitabilityAndSeverity.severity` | `low` \| `medium` \| `high` \| `critical` | `exploitability_and_severity.severity` |  |
@@ -384,7 +390,7 @@ checked against the API spec, the docs and a live tenant.
 | `domain_name` | in the spec; Aqua does not return it |
 | `enabled` | in the spec; Aqua does not return it |
 | `id` | server-assigned |
-| `images` | Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, and stores [] whatever is sent |
+| `images` | Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, stores [] whatever is sent, and an update leaves the entries alone (write-tested) |
 | `kubernetes_controls` | what kubernetesControls is stored as; the client adapter keeps the three fields in step |
 | `kubernetes_controls_avd_ids` | see kubernetes_controls |
 | `labels` | Aqua stores [] whatever is sent |

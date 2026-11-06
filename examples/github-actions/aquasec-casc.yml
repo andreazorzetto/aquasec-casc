@@ -25,11 +25,6 @@ on:
 permissions:
   contents: read
 
-# One at a time, in order: a late-approved older run would re-apply stale files.
-concurrency:
-  group: aqua-configuration
-  cancel-in-progress: false
-
 env:
   # Mirror this into your own registry, and pin it by digest.
   IMAGE: andreazorzetto/aquasec-casc:0.1.0
@@ -64,6 +59,13 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     environment: aqua-production
+    # One apply at a time: a late-approved older run would re-apply stale files. On this
+    # job alone, so a pull request's plan can never push a waiting apply out of the queue.
+    # GitHub keeps one waiting run per group, and the newest wins: after two quick merges
+    # the older apply is dropped, which is right, since the newest holds all the files.
+    concurrency:
+      group: aqua-configuration-apply
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Apply
