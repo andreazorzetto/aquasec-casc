@@ -7,7 +7,7 @@
 #
 # Base images are pinned by digest, Python packages by hash (requirements.lock).
 # Inside an air gap, point these at your mirrors with --build-arg.
-ARG BASE_IMAGE=python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+ARG BASE_IMAGE=python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
 
 FROM ${BASE_IMAGE} AS build
 ARG PIP_INDEX_URL=https://pypi.org/simple
@@ -22,6 +22,9 @@ RUN python -m venv /opt/aquasec-casc \
     && /opt/aquasec-casc/bin/pip uninstall -y -q setuptools wheel pip
 
 FROM ${BASE_IMAGE}
+# The base image's own pip: nothing here runs it, and scanners report it.
+RUN cd /usr/local && rm -rf lib/python3.12/site-packages/pip lib/python3.12/site-packages/pip-*.dist-info \
+    lib/python3.12/ensurepip/_bundled/* bin/pip bin/pip3 bin/pip3.12
 COPY --from=build /opt/aquasec-casc /opt/aquasec-casc
 COPY LICENSE /opt/aquasec-casc/LICENSE
 ENV PATH=/opt/aquasec-casc/bin:$PATH \
