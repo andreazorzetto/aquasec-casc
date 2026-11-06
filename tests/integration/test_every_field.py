@@ -248,18 +248,42 @@ def test_application_scopes_can_change(client, second_scope, kind, type_):
             client.delete(kind_def, key)
 
 
-@pytest.mark.parametrize("type_", ["container", "host", "function"])
-def test_exclude_application_scopes_on_a_runtime_policy(client, second_scope, type_):
-    assert exercise(client, "RuntimePolicy", type_, "excludeApplicationScopes", [second_scope]) == []
+@pytest.mark.parametrize("kind,type_", [("RuntimePolicy", t) for t in ("container", "host", "function")] + [
+    ("AssurancePolicy", t) for t in ("image", "host", "function")])
+def test_exclusions_aqua_holds_stay_and_are_named(client, second_scope, kind, type_):
+    """Not offered, and so written straight to the API. An update must send it back."""
+    kind_def = registry.get(kind)
+    base = _base(kind, type_, _throwaway())
+    changed = _with(base, "description", "aquasec-casc live test, changed, safe to delete")
+    key = None
+    try:
+        _, key = _run(client, kind_def, base)
+        client.update(kind_def, key, {**client.get(kind_def, key), "exclude_application_scopes": [second_scope]})
+        if client.get(kind_def, key).get("exclude_application_scopes") != [second_scope]:
+            pytest.skip("this Aqua version does not keep it, so a policy here cannot hold one")
 
+        r, _ = _run(client, kind_def, base, dry_run=True)
+        assert r.outcome is Outcome.IN_SYNC and second_scope in r.held[0]
 
-@pytest.mark.parametrize("type_", ["image", "host", "function"])
-def test_exclude_application_scopes_on_an_assurance_policy(client, second_scope, type_):
-    """Aqua keeps it only with a feature of its own on. Without it, apply has to say so."""
-    problems = exercise(client, "AssurancePolicy", type_, "excludeApplicationScopes", [second_scope])
-    if len(problems) == 1 and "exclude_application_scopes: sent" in problems[0] and "Aqua holds []" in problems[0]:
-        pytest.skip("Aqua does not keep it on this tenant, and read-back reported that")
-    assert problems == []
+        r, _ = _run(client, kind_def, changed)
+        assert r.outcome is Outcome.UPDATED and not r.not_kept and second_scope in r.held[0]
+        assert client.get(kind_def, key)["exclude_application_scopes"] == [second_scope]
+
+        exported = export_kind(client, kind_def, instance=INSTANCE, scope="Global", names=[kind_def.name_of(key)])
+        assert not exported.skipped
+        assert exported.exported[0].held == {"excludeApplicationScopes": [second_scope]}
+        doc = exported.exported[0].document
+        assert "excludeApplicationScopes" not in doc["spec"]
+        assert _clean(client, kind_def, doc, "export") == []
+
+        # The file renamed: the old policy would go, and its exclusion with it.
+        resource, _ = load_document(_base(kind, type_, _throwaway()), "test")
+        summary = reconcile_all([resource], client, Options(instance=INSTANCE, dry_run=True, kinds=(kind_def,)))
+        deleted = [x for x in summary.results if x.action == "delete"]
+        assert [x.name for x in deleted] == [key] and "goes with this policy" in deleted[0].held[0]
+    finally:
+        if key:
+            client.delete(kind_def, key)
 
 
 @pytest.mark.parametrize("type_", ["container", "host"])

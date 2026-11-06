@@ -6,7 +6,8 @@ There is no state file. Each run compares what Git says with what Aqua has:
 * a control the YAML does not mention is off, and is switched off if it is on
   (``KindDef.off_when_unset``) -- the file is the whole policy;
 * any other field the YAML does not mention belongs to Aqua or the console, and
-  is left alone;
+  is left alone (and named, if it changes what the policy covers:
+  ``KindDef.held_by_aqua``);
 * ownership of the object itself is the marker in its description
   (``marker``), which also tells this instance's objects apart from another's.
 
@@ -190,6 +191,24 @@ def _not_kept(kind: KindDef, key: str, plan: Plan, client: AquaClient) -> list[s
     return missing
 
 
+def _held(kind: KindDef, obj: dict | None, then: str) -> list[str]:
+    """A note for each setting Aqua holds that the tool does not offer."""
+    return [f"{name}: Aqua holds {value!r}, a setting this tool does not offer. {then}"
+            for name, value in kind.held_in_aqua(obj).items()]
+
+
+def _held_when_deleted(kind: KindDef, client: AquaClient, name: str, listed: dict) -> list[str]:
+    """What goes with a deleted object. A rename is a delete and a create, and the new
+    policy will not hold it, so this is the one place it can be lost."""
+    if not kind.held_by_aqua:
+        return []
+    try:
+        full = client.get(kind, name) or listed
+    except ClientError:
+        full = listed                   # the delete will say so, if Aqua is gone
+    return _held(kind, full, "It goes with this policy, and a new one will not hold it.")
+
+
 def reconcile(
     resource: Resource,
     kind: KindDef,
@@ -208,6 +227,8 @@ def reconcile(
         actual = client.get(kind, key)
     except ClientError as exc:
         return Result(**common, outcome=Outcome.FAILED, message=str(exc), reason="LookupFailed")
+
+    common["held"] = _held(kind, actual, "It is not in the file, and stays as it is.")
 
     try:
         desired = _desired(resource, kind, actual, options.instance)
@@ -386,15 +407,17 @@ def _orphans(resources: list[Resource], client: AquaClient, options: Options,
             elif options.dry_run:
                 results.append(Result(**common, outcome=Outcome.PLANNED, action="delete",
                                       reason="DeleteRequired",
+                                      held=_held_when_deleted(kind, client, name, obj),
                                       message="no file describes it; will be deleted"))
             else:
+                held = _held_when_deleted(kind, client, name, obj)
                 try:
                     client.delete(kind, name)
                 except ClientError as exc:
                     results.append(Result(**common, outcome=Outcome.FAILED, message=str(exc),
                                           reason="DeleteFailed"))
                     continue
-                results.append(Result(**common, outcome=Outcome.DELETED,
+                results.append(Result(**common, outcome=Outcome.DELETED, held=held,
                                       message="no file describes it any more"))
     return results
 

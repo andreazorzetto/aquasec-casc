@@ -544,12 +544,16 @@ NOT_OFFERED: dict[str, str] = {
     "registry_access_monitoring.monitored_registry_read": _NOT_CONSOLE,
     "malware_scan_options.include_directories": "Aqua sets its own list and restores it on every save",
     "readonly_files": "Read-Only Directories and Files: deprecated by Aqua, absent from the console, and refused when on for a container policy",
+    "exclude_application_scopes": "The console has no way to exclude an application scope on a runtime policy, only Bypass Scope, which matches on attributes and cannot name a scope. Aqua keeps this field, but nothing shows it does anything, so apply would report success on a setting that may do nothing. What Aqua holds stays as it is: plan, apply and export name it",
     "tripwire": "Honeypot (functions): does nothing without an AWS secret key, and the tool never manages credentials. Set it in the console",
 }
 
 
 class RuntimePolicySpec(ManagedSpec):
     """Desired state of an Aqua runtime policy."""
+
+    renamed: ClassVar[dict[str, str]] = {
+        "excludeApplicationScopes": "not offered: remove it. See 'Not offered' in docs/schema-reference.md. Whatever Aqua holds stays as it is."}
 
     description: str = ""
     enabled: bool = True
@@ -583,7 +587,6 @@ class RuntimePolicySpec(ManagedSpec):
     and in enforce mode this one blocks workloads everywhere. Export always
     writes the scopes it reads, so adopting existing policies is unaffected.
     """
-    excludeApplicationScopes: list[str] | None = None
     additionalScopeCriteria: AdditionalScopeCriteria | None = None
 
     controls: Controls = Field(default_factory=Controls)
@@ -642,7 +645,6 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.enforceAfterDays", "enforce_after_days"),
         FieldMapping("spec.runtimeType", "runtime_type"),
         FieldMapping("spec.applicationScopes", "application_scopes"),
-        FieldMapping("spec.excludeApplicationScopes", "exclude_application_scopes"),
         FieldMapping("spec.additionalScopeCriteria.expression", "scope.expression"),
         FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables", items=SCOPE_VARIABLE),
 

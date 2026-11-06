@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import textwrap
 from pathlib import Path
 
@@ -456,12 +457,6 @@ def test_no_credentials_with_a_read_only_home_is_the_help_text(monkeypatch):
         resolve_settings(None, {})
 
 
-def test_an_exclusion_removed_from_the_file_is_removed():
-    aqua = FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])})
-    r = reconcile_all([policy("p")], aqua, opts(dry_run=True)).results[0]
-    assert {c.path: c.after for c in r.plan.changes}["exclude_application_scopes"] == []
-
-
 def test_export_does_not_overwrite_another_objects_file(tmp_path):
     first = FakeAqua({"Foo Bar": server("Foo Bar", description="x", application_scopes=["A"])})
     args = ["export", "-o", str(tmp_path), "--instance", ME, "--kind", "RuntimePolicy", "--force"]
@@ -655,10 +650,119 @@ def test_export_says_when_the_first_apply_does_more_than_add_the_marker(tmp_path
     assert "does nothing on this type" in out and "switches off what is listed above" in out
 
 
-def test_exclusions_and_auto_scan_are_refused_on_kubernetes():
-    with pytest.raises(SchemaError, match="excludeApplicationScopes"):
-        load_document(assurance_doc(type_="kubernetes", excludeApplicationScopes=["x"]), "t.yaml")
+def test_auto_scan_is_refused_on_kubernetes():
     with pytest.raises(SchemaError, match="autoScan"):
         load_document(assurance_doc(type_="kubernetes", controls={"autoScan": {"iterationType": "daily"}}), "t.yaml")
-    load_document(assurance_doc(excludeApplicationScopes=["x"], controls={"autoScan": {"iterationType": "daily"}}),
-                  "t.yaml")
+    load_document(assurance_doc(controls={"autoScan": {"iterationType": "daily"}}), "t.yaml")
+
+
+# --------------------------------------------------------------------------- #
+# Exclusions: not offered, and not unseen
+# --------------------------------------------------------------------------- #
+
+def _kinds():
+    """Each kind: its fake Aqua holding ``critical``, its key, and its file."""
+    runtime = (FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])}), "p", policy("p"))
+    file, _ = load_document(assurance_doc("p"), "t.yaml")
+    assurance = (FakeAqua({"image/p": stored("p", exclude_application_scopes=["critical"])}), "image/p", file)
+    return [runtime, assurance]
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["runtime", "assurance"])
+def test_a_file_naming_exclusions_is_refused_and_told_why(which):
+    doc = (assurance_doc(excludeApplicationScopes=["x"]) if which else
+           {"apiVersion": "config.aquasec.com/v1alpha1", "kind": "RuntimePolicy", "metadata": {"name": "p"},
+            "spec": {"applicationScopes": ["Global"], "excludeApplicationScopes": ["x"]}})
+    with pytest.raises(SchemaError, match="not offered") as refused:
+        load_document(doc, "t.yaml")
+    assert "excludeApplicationScopes" in str(refused.value)
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["runtime", "assurance"])
+def test_a_plan_changes_nothing_about_exclusions_and_names_them(which):
+    aqua, key, file = _kinds()[which]
+    summary = reconcile_all([file], aqua, opts(dry_run=True))
+    r = summary.results[0]
+    assert all("exclude" not in c.path for c in r.plan.changes)
+    assert "['critical']" in r.held[0] and "stays as it is" in r.held[0]
+    assert summary.exit_code(detailed=False) == 0
+    assert "holding settings this tool does not offer" in summary.summary_line()
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["runtime", "assurance"])
+def test_an_update_sends_exclusions_back_as_they_are(which):
+    aqua, key, file = _kinds()[which]
+    aqua.objects[key]["description"] = "not ours yet"
+    summary = reconcile_all([file], aqua, opts())
+    assert aqua.objects[key]["exclude_application_scopes"] == ["critical"]
+    assert summary.results[0].outcome is Outcome.ADOPTED and not summary.failed
+
+
+def test_exclusions_never_change_the_detailed_exit_code():
+    aqua = FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])})
+    reconcile_all([policy("p")], aqua, opts())
+    summary = reconcile_all([policy("p")], aqua, opts(dry_run=True))
+    assert summary.results[0].outcome is Outcome.IN_SYNC and summary.results[0].held
+    assert summary.exit_code(detailed=True) == 0
+
+
+def test_no_exclusions_is_nothing_to_say():
+    assert reconcile_all([policy("p")], FakeAqua({"p": mine("p", exclude_application_scopes=[])}),
+                         opts(dry_run=True)).results[0].held == []
+
+
+def test_an_in_sync_policy_still_warns_on_stderr(tmp_path):
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec: {applicationScopes: [Global]}
+        """))
+    aqua = FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])})
+    reconcile_all([policy("p")], aqua, opts())
+    code, out, err = run(["plan", "-f", str(tmp_path), "--instance", ME], aqua)
+    assert code == 0
+    assert "warning" in err and "excludeApplicationScopes" in err and "critical" in err
+    assert "excludeApplicationScopes" not in out
+
+
+def test_json_carries_the_exclusions_too(tmp_path):
+    (tmp_path / "p.yaml").write_text(textwrap.dedent("""\
+        apiVersion: config.aquasec.com/v1alpha1
+        kind: RuntimePolicy
+        metadata: {name: p}
+        spec: {applicationScopes: [Global]}
+        """))
+    aqua = FakeAqua({"p": mine("p", exclude_application_scopes=["critical"])})
+    code, out, _ = run(["plan", "-f", str(tmp_path), "--instance", ME, "--output", "json"], aqua)
+    assert code == 0
+    assert "critical" in json.loads(out)["results"][0]["heldInAqua"][0]
+
+
+@pytest.mark.parametrize("dry_run", [True, False], ids=["plan", "apply"])
+def test_deleting_a_policy_says_its_exclusions_go_with_it(dry_run):
+    """A rename is a delete and a create, and the new policy will not hold them."""
+    aqua = FakeAqua({"old": mine("old", exclude_application_scopes=["critical"])})
+    results = reconcile_all([policy("new")], aqua, opts(dry_run=dry_run)).results
+    gone = [r for r in results if r.name == "old"][0]
+    assert "['critical']" in gone.held[0] and "goes with this policy" in gone.held[0]
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["runtime", "assurance"])
+def test_export_leaves_exclusions_out_says_so_and_does_not_fail(tmp_path, which):
+    aqua, key, _ = _kinds()[which]
+    aqua.objects[key]["description"] = ""
+    aqua.objects[key]["application_scopes"] = ["Global"]
+    code, out, err = run(["export", "--scope", "Global", "-o", str(tmp_path), "--instance", ME], aqua)
+    assert code == 0
+    assert "excludeApplicationScopes" in err and "critical" in err and "leaves it as it is" in err
+    for written in tmp_path.glob("*policy*.yaml"):
+        assert "excludeApplicationScopes" not in written.read_text()
+    code, out, _ = run(["export", "--scope", "Global", "-o", str(tmp_path), "--instance", ME, "--force",
+                        "--output", "json"], aqua)
+    assert code == 0 and json.loads(out)["heldInAqua"] == {key: {"excludeApplicationScopes": ["critical"]}}
+    code, out, _ = run(["plan", "-f", str(tmp_path), "--instance", ME], aqua)
+    assert code == 0
+    assert "will be adopted" in out and "exclude" not in out
+    assert all("exclude" not in c.path for r in reconcile_all(load_dir(tmp_path).resources, aqua, opts(dry_run=True)).results
+               for c in r.plan.changes)

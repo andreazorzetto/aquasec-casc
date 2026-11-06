@@ -138,7 +138,13 @@ applying the default could disable a policy or stop it enforcing, and ignoring i
 report in sync with a policy that is not what the file reads as. `export` writes all
 three, so this comes up only in hand-written files. A policy's type cannot change: a file
 stating another type fails, and changes nothing.
-Removing an **exclusion** from `excludeApplicationScopes` removes it too.
+
+**`excludeApplicationScopes` is not offered**, on either kind, and a file naming it is
+refused. If Aqua holds one anyway, an update sends it back as it is, since clearing it could
+put a scope back under a policy that someone had kept off it. `plan`, `apply` and `export`
+name it in a warning, which never changes the exit code. A deleted policy's exclusions go
+with it, and a rename is a delete and a create, so the warning says that too. The reasons
+are in [Not offered](schema-reference.md#not-offered).
 
 **The file is the whole policy.** A control the YAML leaves out is off, as on a
 new policy, where Aqua starts every control off (verified live). So the same

@@ -17,15 +17,22 @@ additional scope criteria, and refuses a change of type.
 
 | Aqua | |
 |---|---|
-| SaaS | All of it, signing in with a user name and password, except `bypassScope`, which only Aqua's default policies have, and this tenant is shared. All 61 policies on the tenant export and plan only the marker. |
-| Self-hosted, console 10.8.1 (its exports say version 2022.4) | All of it, `bypassScope` included, signing in at `/api/v1/login`. All 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+| SaaS U14 | All of it, signing in with a user name and password, except writing `bypassScope`. All 61 policies on the tenant export and plan only the marker. |
+| Self-hosted, console 10.8.1 (its exports say version 2022.4) | All of it, signing in at `/api/v1/login`. All 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+
+`bypassScope` is offered on the default container and host runtime policies. Only the self-hosted
+test writes it, with `AQUASEC_CASC_LIVE_DEFAULTS=1`, since it edits Aqua's default policies and the
+SaaS tenant is shared. On SaaS the round trip covers reading it, and nothing there covers writing it.
 
 Not tested live: API key sign-in on either, an older self-hosted version (where read-back is what
 reports a field that version lacks), a CA bundle against a real console (unit tests cover the setting; a throwaway local HTTPS check in review covered the connection), and changing the scopes of a `cf_application` policy, for want of a scope that covers one.
 
-`excludeApplicationScopes` on an assurance policy: neither tenant kept it, as Aqua keeps it only with
-its application scope improvements on. `apply` reported that each time, so it fails rather than
-misleads, but no tenant has shown it working.
+`excludeApplicationScopes` is not offered on either kind, for the reasons under
+[Not offered](#not-offered). On assurance policies, neither version tested has it: both drop it.
+Aqua expects to ship it in SaaS U15 and in self-hosted 2022.4 U48 / 10.9.0. That is Aqua's statement,
+not something seen here, and whether it must also be switched on there is not known. It can come
+back once it can be tested on one of those. The live test that an update keeps what Aqua holds ran
+on runtime policies only, as assurance policies on these versions cannot hold it; unit tests cover those.
 
 These tests show what Aqua stores, not that it acts on it. Aqua keeps some fields it does not
 use, so read-back cannot show that a version enforces a control. `vulnerabilityExploitabilityAndSeverity`
@@ -43,7 +50,6 @@ All under `spec`.
 | `enforceAfterDays` | number | `enforce_after_days` | Enforce Mode after this many days. When Aqua makes the switch, write ``enforce: true`` too: a file still saying ``false`` puts the policy back in audit. |
 | `runtimeType` | `container` \| `host` \| `function` | `runtime_type` |  |
 | `applicationScopes` | list of text | `application_scopes` | The application scopes this policy applies to. Required: when Aqua is given none it applies the policy to Global, meaning every workload. Write ["Global"] if that is what you intend. |
-| `excludeApplicationScopes` | list of text | `exclude_application_scopes` |  |
 | `additionalScopeCriteria` | object | | The console's Additional Scope Criteria: what, within the application scopes, a policy applies to. They can narrow a policy, never widen it. |
 | `additionalScopeCriteria.expression` | text | `scope.expression` | How the variables combine, e.g. ``v1 \|\| v2``; ``v1`` is the first. |
 | `additionalScopeCriteria.variables` | list of {attribute, value, name} | `scope.variables` |  |
@@ -201,7 +207,6 @@ All under `spec`.
 | `assuranceType` | `image` \| `host` \| `function` \| `kubernetes` \| `cf_application` | `assurance_type` |  |
 | `description` | text | `description` |  |
 | `applicationScopes` | list of text | `application_scopes` | The application scopes this policy applies to. Required: when Aqua is given none it applies the policy to Global, meaning everything. Write ["Global"] if that is what you intend. |
-| `excludeApplicationScopes` | list of text | `exclude_application_scopes` | Scopes left out of a policy on Global alone. Not on kubernetes. Aqua keeps this only with its application scope improvements on: otherwise it drops it, and ``apply`` fails saying so. |
 | `additionalScopeCriteria` | object | | The console's Additional Scope Criteria: what, within the application scopes, a policy applies to. They can narrow a policy, never widen it. |
 | `additionalScopeCriteria.expression` | text | `scope.expression` | How the variables combine, e.g. ``v1 \|\| v2``; ``v1`` is the first. |
 | `additionalScopeCriteria.variables` | list of {attribute, value, name} | `scope.variables` |  |
@@ -341,6 +346,7 @@ checked against the API spec, the docs and a live tenant.
 | `domain` | server-assigned |
 | `drift_prevention.image_lockdown` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `enforce_scheduler_added_on` | server-assigned |
+| `exclude_application_scopes` | The console has no way to exclude an application scope on a runtime policy, only Bypass Scope, which matches on attributes and cannot name a scope. Aqua keeps this field, but nothing shows it does anything, so apply would report success on a setting that may do nothing. What Aqua holds stays as it is: plan, apply and export name it |
 | `failed_kubernetes_checks` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `file_block.block_files_processes` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
 | `file_block.block_files_users` | not in Aqua's console or docs' control lists, and no console-made policy uses it |
@@ -393,6 +399,7 @@ checked against the API spec, the docs and a live tenant.
 | `domain` | in the spec; Aqua does not return it |
 | `domain_name` | in the spec; Aqua does not return it |
 | `enabled` | in the spec; Aqua does not return it |
+| `exclude_application_scopes` | The versions tested (SaaS U14, console 10.8.1) drop it, so it could not be tested. It can come back once it can be, on SaaS U15 or 10.9.0: see Tested against. What Aqua holds stays as it is: plan, apply and export name it |
 | `id` | server-assigned |
 | `images` | Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, stores [] whatever is sent, and an update leaves the entries alone (write-tested) |
 | `kubernetes_controls` | what kubernetesControls is stored as; the client adapter keeps the three fields in step |

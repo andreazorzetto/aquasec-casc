@@ -79,6 +79,10 @@ class Result:
     and dropped or changed them. Usually a field this Aqua version does not have.
     A run with any of these fails: the policy is not what the file says."""
 
+    held: list[str] = field(default_factory=list)
+    """Settings Aqua holds that the tool does not offer, and what becomes of them.
+    Never failed or pending: nothing in a file can settle them."""
+
     informational: bool = False
     """Reported, but nothing anyone could do will resolve it -- so it never
     counts as pending (an orphaned predefined policy, which Aqua cannot delete,
@@ -169,4 +173,7 @@ class RunSummary:
         not_kept = sum(1 for r in self.results if r.not_kept)
         if not_kept:
             parts.append(f"{not_kept} with fields Aqua did not keep")
+        held = sum(1 for r in self.results if r.held)
+        if held:
+            parts.append(f"{held} holding settings this tool does not offer")
         return ", ".join(parts)

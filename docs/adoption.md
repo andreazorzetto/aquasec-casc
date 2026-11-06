@@ -67,6 +67,10 @@ report it. `apply` would make that change.
 They stay with the console, and an apply never changes them. The list and the reason
 for each is in [schema-reference.md](schema-reference.md#not-offered).
 
+One of them changes what a policy covers, so it gets a warning: if Aqua holds
+`excludeApplicationScopes` on a policy, `export` says it left it out, and `plan` and `apply`
+say it stays as it is. Renaming that policy loses it, because a rename is a delete and a create.
+
 ## Getting out again
 
 `release` removes the marker and changes nothing else, so policies carry on unmanaged;

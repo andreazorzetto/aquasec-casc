@@ -17,6 +17,7 @@ update and a later re-save. What Aqua accepts and then drops is not offered; see
 from __future__ import annotations
 
 from enum import Enum
+from typing import ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
@@ -401,6 +402,7 @@ NOT_OFFERED: dict[str, str] = {
     "labels": "Aqua stores [] whatever is sent",
     "images": "Images Blocked: the console only lists decisions made on images in the inventory, and offers removing them. They are not in the policy: the API returns [] even with entries, stores [] whatever is sent, and an update leaves the entries alone (write-tested)",
     "allowed_images": "Images Allowed: as images",
+    "exclude_application_scopes": "The versions tested (SaaS U14, console 10.8.1) drop it, so it could not be tested. It can come back once it can be, on SaaS U15 or 10.9.0: see Tested against. What Aqua holds stays as it is: plan, apply and export name it",
     "scap_files": "SCAP: the console offers it as a scanning setting, not a control of the policy",
     "scap_enabled": "see scap_files",
     "auto_scan_configured": "server-assigned",
@@ -421,6 +423,9 @@ NOT_OFFERED: dict[str, str] = {
 class AssurancePolicySpec(ManagedSpec):
     """Desired state of an Aqua assurance policy."""
 
+    renamed: ClassVar[dict[str, str]] = {
+        "excludeApplicationScopes": "not offered: remove it. See 'Not offered' in docs/schema-reference.md. Whatever Aqua holds stays as it is."}
+
     assuranceType: AssuranceType
     description: str = ""
 
@@ -432,10 +437,6 @@ class AssurancePolicySpec(ManagedSpec):
             "Write [\"Global\"] if that is what you intend."
         ),
     )
-    excludeApplicationScopes: list[str] | None = None
-    """Scopes left out of a policy on Global alone. Not on kubernetes. Aqua keeps this only
-    with its application scope improvements on: otherwise it drops it, and ``apply`` fails
-    saying so."""
     additionalScopeCriteria: AdditionalScopeCriteria | None = None
 
     actions: Actions = Field(default_factory=Actions)
@@ -451,8 +452,6 @@ class AssurancePolicySpec(ManagedSpec):
             if on and self.assuranceType not in types:
                 names = " and ".join(sorted(t.value for t in types))
                 raise ValueError(f"{path} is only available on {names} policies.")
-        if self.excludeApplicationScopes and self.assuranceType is _T.KUBERNETES:
-            raise ValueError("excludeApplicationScopes is not available on kubernetes policies.")
         return self
 
 
@@ -485,7 +484,6 @@ FIELD_MAP = FieldMap(
         FieldMapping("spec.assuranceType", "assurance_type"),
         FieldMapping("spec.description", "description"),
         FieldMapping("spec.applicationScopes", "application_scopes"),
-        FieldMapping("spec.excludeApplicationScopes", "exclude_application_scopes"),
         FieldMapping("spec.additionalScopeCriteria.expression", "scope.expression"),
         FieldMapping("spec.additionalScopeCriteria.variables", "scope.variables", items=SCOPE_VARIABLE),
 

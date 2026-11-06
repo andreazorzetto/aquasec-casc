@@ -110,15 +110,22 @@ additional scope criteria, and refuses a change of type.
 
 | Aqua | |
 |---|---|
-| SaaS | All of it, signing in with a user name and password, except `bypassScope`, which only Aqua's default policies have, and this tenant is shared. All 61 policies on the tenant export and plan only the marker. |
-| Self-hosted, console 10.8.1 (its exports say version 2022.4) | All of it, `bypassScope` included, signing in at `/api/v1/login`. All 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+| SaaS U14 | All of it, signing in with a user name and password, except writing `bypassScope`. All 61 policies on the tenant export and plan only the marker. |
+| Self-hosted, console 10.8.1 (its exports say version 2022.4) | All of it, signing in at `/api/v1/login`. All 32 policies export and plan only the marker. Aqua's default policies were also adopted, edited and released, leaving them as they were. |
+
+`bypassScope` is offered on the default container and host runtime policies. Only the self-hosted
+test writes it, with `AQUASEC_CASC_LIVE_DEFAULTS=1`, since it edits Aqua's default policies and the
+SaaS tenant is shared. On SaaS the round trip covers reading it, and nothing there covers writing it.
 
 Not tested live: API key sign-in on either, an older self-hosted version (where read-back is what
 reports a field that version lacks), a CA bundle against a real console (unit tests cover the setting; a throwaway local HTTPS check in review covered the connection), and changing the scopes of a `cf_application` policy, for want of a scope that covers one.
 
-`excludeApplicationScopes` on an assurance policy: neither tenant kept it, as Aqua keeps it only with
-its application scope improvements on. `apply` reported that each time, so it fails rather than
-misleads, but no tenant has shown it working.
+`excludeApplicationScopes` is not offered on either kind, for the reasons under
+[Not offered](#not-offered). On assurance policies, neither version tested has it: both drop it.
+Aqua expects to ship it in SaaS U15 and in self-hosted 2022.4 U48 / 10.9.0. That is Aqua's statement,
+not something seen here, and whether it must also be switched on there is not known. It can come
+back once it can be tested on one of those. The live test that an update keeps what Aqua holds ran
+on runtime policies only, as assurance policies on these versions cannot hold it; unit tests cover those.
 
 These tests show what Aqua stores, not that it acts on it. Aqua keeps some fields it does not
 use, so read-back cannot show that a version enforces a control. `vulnerabilityExploitabilityAndSeverity`

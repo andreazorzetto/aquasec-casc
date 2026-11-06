@@ -140,6 +140,10 @@ Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 wh
   `apply`, not guessed at. A field it keeps but does not act on cannot be seen from the API,
   so try a new control on your own version first. See
   [what it was tested against](docs/schema-reference.md#tested-against).
+- **Application scopes cannot be excluded.** `excludeApplicationScopes` is not offered, for
+  [these reasons](docs/schema-reference.md#not-offered). If Aqua holds one, it stays, with a
+  warning. Bypass Scope is not a substitute: it matches on attributes, and only the default
+  container and host runtime policies have it.
 - **One Aqua instance per run**, and no scheduling of its own.
 
 ## Roadmap

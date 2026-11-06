@@ -160,6 +160,8 @@ def change_lines(result, instance: str) -> list[str]:
 def render_text(summary: RunSummary, out: Out, instance: str, verbose: bool = False,
                 line: str | None = None) -> None:
     for r in summary.results:
+        for item in r.held:
+            out.notes.line(f"warning: {r.kind}/{_one_line(r.name)}: {_one_line(item)}", "yellow")
         if r.outcome is Outcome.IN_SYNC and not r.not_allowed and not verbose:
             continue
         if r.outcome is Outcome.PLANNED:
@@ -204,7 +206,7 @@ def render_json(summary: RunSummary, exit_code: int, line: str | None = None) ->
             "outcome": r.outcome.value, "action": r.action or None,
             "reason": r.reason or None, "message": r.message or None,
             "changes": plan_json(r), "notAllowed": r.not_allowed, "notKept": r.not_kept,
-            "pending": r.pending,
+            "heldInAqua": r.held, "pending": r.pending,
         } for r in summary.results],
     }, indent=2, default=str)
 
@@ -420,6 +422,7 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
             "skipped": [{"aquaName": s.aqua_name, "reason": s.reason} for s in result.skipped],
             "leftOutside": result.left_outside,
             "leftOut": {e.aqua_name: e.left_out for e in result.exported if e.left_out},
+            "heldInAqua": {e.aqua_name: e.held for e in result.exported if e.held},
             "configWritten": config_written,
         }, indent=2))
     else:
@@ -431,6 +434,10 @@ def cmd_export(args, out: Out, connect: Callable) -> int:
             for path in e.left_out:
                 out.line(f"  {e.aqua_name!r}: {path} is on in Aqua and does nothing on this type; "
                          "left out, so the first apply switches it off", "yellow")
+            for name, value in e.held.items():
+                out.notes.line(f"warning: {_one_line(e.aqua_name)!r}: {name}: Aqua holds {_one_line(repr(value))}, "
+                               "a setting this tool does not offer. It is not in the file, and an apply "
+                               "leaves it as it is.", "yellow")
         if config_written:
             out.line(f"+ {CONFIG_FILE}  (instance: {instance})", "green")
         out.line(f"{len(result.exported)} exported, {len(result.skipped)} skipped -> {target}", "bold")

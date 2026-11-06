@@ -125,6 +125,8 @@ class Exported:
     shipped: bool = False
     left_out: list[str] = field(default_factory=list)
     """On in Aqua, but it does nothing on this type, so it is not in the file."""
+    held: dict = field(default_factory=dict)
+    """Held in Aqua, and not offered, so not in the file. An apply leaves it as it is."""
 
 
 @dataclass
@@ -195,11 +197,9 @@ def export_kind(
             if not (shipped and name in allowed):
                 api_view.pop(prefix.split(".")[0], None)
         spec = _drop_off_controls(_prune(kind.field_map.from_api(api_view).get("spec", {})), kind)
-        # Aqua holds empty criteria and exclusions on a policy without any.
+        # Aqua holds empty criteria on a policy without any.
         if not (spec.get("additionalScopeCriteria") or {}).get("variables"):
             spec.pop("additionalScopeCriteria", None)
-        if not spec.get("excludeApplicationScopes"):
-            spec.pop("excludeApplicationScopes", None)
         text = marker.strip(full.get("description"))
         if text:
             spec["description"] = text
@@ -239,6 +239,7 @@ def export_kind(
             document=document,
             shipped=shipped,
             left_out=left_out,
+            held=kind.held_in_aqua(full),
         ))
 
     return result

@@ -81,7 +81,7 @@ RUNTIME: dict[str, tuple[object, tuple[str, ...]]] = {
 #: Fields offered and tested another way. Bypass Scope exists only on Aqua's two
 #: default policies, so a throwaway policy cannot hold it.
 RUNTIME_ELSEWHERE = {"spec.controls.bypassScope", "spec.description", "spec.enabled", "spec.runtimeType",
-                     "spec.applicationScopes", "spec.excludeApplicationScopes"}
+                     "spec.applicationScopes"}
 
 _ALL = (IMAGE, HOST, FUNCTION, TANZU)
 
@@ -140,4 +140,4 @@ ASSURANCE: dict[str, tuple[object, tuple[str, ...]]] = {
 ASSURANCE_AT_RUN_TIME = {"spec.controls.approvedBaseImage", "spec.controls.customComplianceChecks"}
 
 ASSURANCE_ELSEWHERE = {"spec.assuranceType", "spec.description", "spec.applicationScopes",
-                       "spec.excludeApplicationScopes", "spec.additionalScopeCriteria"}
+                       "spec.additionalScopeCriteria"}
