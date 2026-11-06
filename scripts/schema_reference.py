@@ -21,7 +21,7 @@ from aquasec_casc.schema.sections import Section
 HEAD = """# Schema reference
 
 Generated from the schema by `scripts/schema_reference.py`; do not edit by hand.
-[schema-examples.md](schema-examples.md) shows the same fields in use.
+[Writing policies](writing-policies.md) shows the same fields in use.
 
 Names are the console's labels in camelCase. Under `actions`, `exceptions` and
 `controls`, **what the file leaves out is off**. A control with settings can be

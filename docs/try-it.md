@@ -280,4 +280,4 @@ against a wrong path or an empty mount.
 | `--detailed-exitcode` | `plan`/`apply` exit 2 when changes are (left) pending, for scripts |
 
 Exit codes, as Terraform: 0 success, 1 error; `plan` and `apply` exit 2 when
-changes are pending only with `--detailed-exitcode`. See [architecture.md](architecture.md) for the reasoning behind each rule.
+changes are pending only with `--detailed-exitcode`. See [how-it-works.md](how-it-works.md) for the reasoning behind each rule.

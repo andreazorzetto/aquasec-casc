@@ -75,5 +75,5 @@ say it stays as it is. Renaming that policy loses it, because a rename is a dele
 
 `release` removes the marker and changes nothing else, so policies carry on unmanaged;
 `release --to other` hands them to another instance. See
-[architecture.md](architecture.md#leaving-release-and-hand-over). Removing a *file*
+[how-it-works.md](how-it-works.md#leaving-release-and-hand-over). Removing a *file*
 is not the way out: that deletes the policy.

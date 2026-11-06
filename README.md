@@ -1,30 +1,13 @@
-# aquasec-casc
+# Config as Code for Aqua Security
 
-Config-as-code for Aqua Security: describe Aqua configuration in YAML, keep it
-in Git, and make Aqua match it.
+**Keep your Aqua policies in Git. Review every change in a pull request. Apply it from Argo CD, CI or a laptop.**
 
-```
-YAML in Git  ──►  aquasec-casc plan / apply  ──►  Aqua REST API
-```
+[![CI](https://github.com/andreazorzetto/aquasec-casc/actions/workflows/ci.yml/badge.svg)](https://github.com/andreazorzetto/aquasec-casc/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/andreazorzetto/aquasec-casc)](https://github.com/andreazorzetto/aquasec-casc/releases/latest)
+[![Image](https://img.shields.io/docker/v/andreazorzetto/aquasec-casc?sort=semver&label=image)](https://hub.docker.com/r/andreazorzetto/aquasec-casc)
+[![Licence](https://img.shields.io/github/license/andreazorzetto/aquasec-casc)](LICENSE)
 
-- **Run once and exit.** From a laptop, a CI job, or an Argo CD hook.
-- **Stateless.** Ownership is a marker line in each object's description
-  (`managed-by: aquasec-casc/<instance>`); there is no state file.
-- **The file is the whole policy.** What the YAML leaves out of a policy's controls
-  is off, so a control switched on in the console is drift. Settings the tool does
-  not cover stay with the console, and each is [listed](docs/schema-reference.md#not-offered).
-- **Git-driven deletion**, with guardrails: only this instance's objects, never
-  Aqua's own, never for a kind with no files in the run, never while a file of that
-  kind has failed, and never when given a single file.
-- **It checks what it wrote.** Aqua silently drops fields it does not know, and
-  versions differ, so `apply` reads each object back and fails if a field was not kept.
-
-Supported: **runtime policies** (container, host, function) and **assurance policies**
-(image, host, function, Kubernetes, VMware Tanzu). Every control has been
-[written and read back](tests/integration/test_every_field.py) against live SaaS and
-self-hosted tenants: see [what it was tested against](docs/schema-reference.md#tested-against).
-
-## A policy
+`aquasec-casc` reads policies from YAML, shows what would change, and makes Aqua match. It runs once and exits, and keeps no state.
 
 ```yaml
 apiVersion: config.aquasec.com/v1alpha1
@@ -48,24 +31,33 @@ $ aquasec-casc plan -f aqua/policies
 0 unchanged, 0 created, 0 updated, 0 adopted, 0 deleted, 1 planned
 ```
 
+## Why use it
+
+- **Start from what you have.** `export` writes your existing policies as YAML, and the first `apply` adds only an ownership marker.
+- **Git is the source of truth.** A control the file leaves out is off, a console change is drift, and removing a file deletes the policy.
+- **Deleting is guarded.** It only touches policies this instance owns, never Aqua's own, and holds back if anything looks wrong.
+- **It checks what it wrote.** Aqua silently drops fields it does not know, so `apply` reads each policy back and fails if a field was not kept.
+- **Built for air gaps.** One image with every dependency pinned, running as non-root on a read-only filesystem, talking only to the Aqua API.
+
+Supports **runtime policies** (container, host, function) and **assurance policies** (image, host, function, Kubernetes, VMware Tanzu).
+
 ## Quick start
 
-[docs/try-it.md](docs/try-it.md) is a fifteen-minute guided tour against your own
-tenant, using the safe playground in [examples/playground](examples/playground).
-
 ```sh
-python3 -m venv .venv && .venv/bin/pip install .     # Python 3.11+
-source .venv/bin/activate
+git clone https://github.com/andreazorzetto/aquasec-casc.git && cd aquasec-casc
+python3 -m venv .venv && source .venv/bin/activate
+pip install .                                    # Python 3.11+
 
-export AQUA_URL=https://aqua.internal.example        # self-hosted Aqua
+export AQUA_URL=https://aqua.internal.example    # your console
 export AQUA_USER=... AQUA_PASSWORD=...
-export AQUA_CA_BUNDLE=/path/to/internal-ca.pem       # if it has an internal CA
 
-aquasec-casc validate -f examples/playground         # no network
-aquasec-casc plan -f examples/playground             # read-only
+aquasec-casc validate -f examples/playground     # no network
+aquasec-casc plan -f examples/playground         # read-only
 ```
 
-Or run the image, which is what CI and Argo CD do:
+If your console uses an internal CA, also set `AQUA_CA_BUNDLE=/path/to/ca.pem`. On SaaS, run `aquasec-casc setup` instead of setting the variables.
+
+Or use the image, as CI and Argo CD do:
 
 ```sh
 docker run --rm --read-only -v "$PWD/examples/playground:/config:ro" \
@@ -73,86 +65,56 @@ docker run --rm --read-only -v "$PWD/examples/playground:/config:ro" \
   andreazorzetto/aquasec-casc:0.1.0 plan -f /config
 ```
 
-With an internal CA, add `-v "$PWD/internal-ca.pem:/ca.pem:ro" -e AQUA_CA_BUNDLE=/ca.pem`.
+## Where next
 
-## Configure
-
-Credentials come from a saved profile or the environment -- never from a file
-in the repo. In order: `--profile NAME`; `AQUA_*` variables if any are set (see
-[.env.example](.env.example)), which is what CI and Argo CD use, and an incomplete set
-is an error rather than a fallback; the default profile. Profiles are shared with the other aquasec tools:
-
-```sh
-aquasec-casc setup [NAME]                  # interactive; tests the connection, saves encrypted
-aquasec-casc profile list | show [NAME] | set-default NAME | delete NAME
-```
-
-Profiles are for a person's laptop: they are encrypted with a key kept beside them, so
-treat them as you would a password in your home directory. CI and Argo CD use the
-variables, from their own secret stores.
-
-The **instance name** goes in `aquasec-casc.yaml` at the root of the config
-folder (`instance: platform`), or `--instance` / `$AQUASEC_CASC_INSTANCE`.
-
-TLS is verified by default, and the tool refuses `http://` addresses and redirects, so
-credentials go only where you pointed them. Point `AQUA_CA_BUNDLE` at an internal CA.
-`AQUA_TLS_INSECURE=true` turns off certificate checks and allows `http://`, and the
-password goes over that connection with it, so keep it to throwaway labs.
+| I want to... | Read |
+|---|---|
+| **Run it from Argo CD**, and mirror the image into an air gap | [Argo CD setup](docs/argocd.md) |
+| Bring an existing tenant under management | [Adopting existing policies](docs/adoption.md) |
+| Try every command safely, in about 15 minutes | [Guided tour](docs/try-it.md) |
+| Write my own policies | [Writing policies](docs/writing-policies.md) |
+| Look up a field, or see why one is not offered | [Schema reference](docs/schema-reference.md) |
+| Understand the rules behind what it does | [How it works](docs/how-it-works.md) |
+| Run it from GitHub Actions | [Example workflow](examples/github-actions/aquasec-casc.yml) |
 
 ## Commands
 
 | Command | |
 |---|---|
-| `validate -f DIR` | Check the YAML against the schema. No network. |
+| `validate -f DIR` | Check the YAML. No network. |
 | `plan -f DIR` | Show what `apply` would change. Read-only. |
 | `apply -f DIR` | Make Aqua match the YAML. `--no-delete` holds back deletions. |
-| `export --scope S -o DIR` | Write existing configuration as YAML, ready to adopt. Read-only. |
-| `release` | Stop managing all this instance's objects, or those `--name` picks, without deleting them; `--to` hands them over. |
-| `destroy [-f DIR]` | Delete what the files describe, or everything this instance manages. Asks first. |
+| `export --scope S -o DIR` | Write existing policies as YAML. Read-only. |
+| `release` | Stop managing policies, without deleting them. |
+| `destroy [-f DIR]` | Delete what this instance manages. Asks first. |
 | `schema KIND` | Print a kind's JSON Schema, for editors and CI. |
 | `setup`, `profile` | Save and manage credential profiles. |
 
-Exit codes follow Terraform: 0 success, 1 error; `--detailed-exitcode` adds 2 when
-`plan` or `apply` leaves changes pending. `--output json` on everything that talks to Aqua.
+Exit codes are 0 for success and 1 for an error, and `--detailed-exitcode` adds 2 when changes are pending. `--output json` works on everything that talks to Aqua.
 
-## Documentation
+## Configuration
 
-| | |
-|---|---|
-| [docs/argocd.md](docs/argocd.md) | **Setting it up in Argo CD**, and mirroring the image into an air-gapped registry |
-| [docs/adoption.md](docs/adoption.md) | Bringing an already configured tenant under management |
-| [docs/try-it.md](docs/try-it.md) | A guided tour against your own tenant |
-| [docs/demo.md](docs/demo.md) | The demo: from export to drift correction, with exact commands |
-| [docs/schema-reference.md](docs/schema-reference.md) | Every field, its API name, and what is not offered and why |
-| [docs/schema-examples.md](docs/schema-examples.md) | The YAML in use |
-| [docs/architecture.md](docs/architecture.md) | How it works, and why |
-| [examples/github-actions](examples/github-actions) | A GitHub Actions workflow: plan on a pull request, apply on merge |
+**Instance name.** Each configuration folder has an `aquasec-casc.yaml` holding `instance: platform`. The name marks policies as this configuration's own, so two teams on one tenant cannot overwrite each other.
 
-## Limits, plainly
+**Credentials** never go in the repo. The tool takes them from, in order:
 
-- **It corrects drift when it runs, and at no other time.** A console change stays
-  until the next run. Schedule the run if that gap matters; closing it properly is what
-  an operator would do, and that is a later phase.
-- **A rename is a delete and a create**, because Aqua has no rename. Creates run before
-  deletes, and a failed create holds the delete back, so a policy is never left with
-  neither.
-- **Field support varies by Aqua version.** A field a version does not keep is reported at
-  `apply`, not guessed at. A field it keeps but does not act on cannot be seen from the API,
-  so try a new control on your own version first. See
-  [what it was tested against](docs/schema-reference.md#tested-against).
-- **Application scopes cannot be excluded.** `excludeApplicationScopes` is not offered, for
-  [these reasons](docs/schema-reference.md#not-offered). If Aqua holds one, it stays, with a
-  warning. Bypass Scope is not a substitute: it matches on attributes, and only the default
-  container and host runtime policies have it.
-- **One Aqua instance per run**, and no scheduling of its own.
+1. `--profile NAME`: a profile saved with `aquasec-casc setup`, for a person's laptop. Its key is kept beside it, so treat it like a password in your home directory.
+2. `AQUA_*` variables, for CI and Argo CD: see [.env.example](.env.example).
+3. The default profile.
+
+**TLS** is verified, and `http://` addresses and redirects are refused. `AQUA_TLS_INSECURE=true` turns that off, and sends the password over that connection, so keep it to throwaway labs.
+
+## Limits
+
+- **It corrects drift only when it runs.** A console change stays until the next run, so schedule one if that gap matters.
+- **A rename is a delete and a create**, because Aqua has no rename. A failed create holds the delete back.
+- **Versions differ.** A field your Aqua does not keep fails the `apply`. One it keeps but ignores cannot be seen from the API, so try new controls on your version first. See [what was tested](docs/schema-reference.md#tested-against).
+- **Application scopes cannot be excluded.** `excludeApplicationScopes` is [not offered](docs/schema-reference.md#not-offered). If Aqua holds one, it stays, with a warning.
 
 ## Roadmap
 
-Enforcer groups, with the registration token kept out of logs and Git; application
-scopes; a Kubernetes operator with these same objects as CRDs, for continuous
-correction. Users, roles, registries, notifications and response policies are not
-planned, and neither is parity with the Terraform provider.
+Next are enforcer groups and application scopes, then a Kubernetes operator using these same objects as CRDs, for continuous correction. Users, roles, registries, notifications and response policies are not planned.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)

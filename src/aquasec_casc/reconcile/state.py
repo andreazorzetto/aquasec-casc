@@ -3,7 +3,7 @@
 The tool is stateless: no state file, no in-cluster backend, nothing to persist
 or commit back. Ownership lives on the Aqua object itself (``marker``), so a
 run behaves identically on a laptop, in CI and in an Argo CD hook. See
-docs/architecture.md for why this departs from the original brief.
+docs/how-it-works.md for why.
 
 ``StateBackend`` stays as the seam for phase 2, where an operator would report
 observed state on the custom resource's ``.status``. Phase 1 uses the no-op

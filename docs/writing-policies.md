@@ -54,7 +54,7 @@ Two fields worth explaining, because they are the safety model:
 |---|---|
 | `spec.enforcement` | `Reconcile` corrects drift. `ReportOnly` reports it and changes nothing — how you watch a policy before trusting the tool with it. |
 | `spec.applicationScopes` | Required. Aqua's default for a policy with no scopes is Global — every workload — so getting that by leaving the field out is refused. Write `["Global"]` if that is what you mean. |
-| *(deletion)* | Not a field. Removing a file from Git deletes the object on the next `apply`; `--no-delete` on a run holds deletions back. See `docs/architecture.md`. |
+| *(deletion)* | Not a field. Removing a file from Git deletes the object on the next `apply`; `--no-delete` on a run holds deletions back. See [how it works](how-it-works.md). |
 
 ### The names are the console's, not the API's
 
